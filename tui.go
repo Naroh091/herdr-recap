@@ -863,12 +863,15 @@ func (m model) listHeight() int {
 	return max(3, m.height-listTop-2-max(0, m.replyLines()-1))
 }
 
-// maxRecapWidth keeps recap lines to a comfortable measure on a wide popup.
-const maxRecapWidth = 80
-
-// recapWidth is the room a recap line has: indented under the title, and no
-// wider than maxRecapWidth.
-func (m model) recapWidth() int { return max(10, min(maxRecapWidth, m.width-6)) }
+// recapWidth is the room a recap line has: indented under the title, and
+// short of the popup's right edge by a margin that grows with the popup (3
+// cells on a narrow one, 8 on a wide one), so the text doesn't run into the
+// border. On a wide popup a recap is a line or two, not three, and more
+// agents fit.
+func (m model) recapWidth() int {
+	margin := min(8, max(3, m.width/16))
+	return max(10, m.width-3-margin)
+}
 
 // body is what goes under an agent's title: its recap wrapped, or why there
 // isn't one.

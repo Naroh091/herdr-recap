@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1 - 2026-10-11
+
+- **A recap runs the width of the popup**, where it stopped at 80 columns:
+  on a wide terminal it's a line or two, and more agents fit. It stops short
+  of the right edge by a margin that grows with the popup, 3 cells on a
+  narrow one and up to 8 on a wide one.
+
 ## 0.5.0 - 2026-10-10
 
 - **Better titles, suggested with the recap.** An agent with no title, a slug
