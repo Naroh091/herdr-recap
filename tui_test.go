@@ -568,6 +568,44 @@ func TestMemexSessionRefreshesWhileStateIsUnchanged(t *testing.T) {
 	}
 }
 
+// failingRecapSource is a Memex-backed session whose recap always fails.
+type failingRecapSource struct {
+	*demoSource
+	recaps int
+}
+
+func (f *failingRecapSource) capable(agentInfo) bool { return true }
+
+func (f *failingRecapSource) session(context.Context, agentInfo) (claudeSession, error) {
+	return claudeSession{Agent: "opencode", ID: openCodeSession, Transcript: "/x", Stamp: "v1"}, nil
+}
+
+func (f *failingRecapSource) cached(claudeSession) (*recap, bool) { return nil, false }
+
+func (f *failingRecapSource) recap(context.Context, claudeSession, string, bool) (recap, error) {
+	f.recaps++
+	return recap{}, errors.New("no summarizer")
+}
+
+func TestAFailedMemexRecapIsntTriedAgainUntilTheSessionMoves(t *testing.T) {
+	src := &failingRecapSource{demoSource: newDemoSource()}
+	now := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
+	m := newModel(context.Background(), src)
+	m.now = func() time.Time { return now }
+	a := agentInfo{PaneID: "w9:p3", Agent: "opencode", Status: "done", StateChangeSeq: 1, AgentSession: agentSession{Kind: "id", Value: openCodeSession}}
+	m = settle(t, m, m.updateAgents([]agentInfo{a}, nil))
+	if src.recaps != 1 || !strings.HasPrefix(m.entries[a.PaneID].note, "Couldn't recap") {
+		t.Fatalf("recaps %d, note %q", src.recaps, m.entries[a.PaneID].note)
+	}
+	for range 3 {
+		now = now.Add(memexRefreshEvery)
+		m = settle(t, m, m.updateAgents([]agentInfo{a}, nil))
+	}
+	if src.recaps != 1 || !strings.HasPrefix(m.entries[a.PaneID].note, "Couldn't recap") {
+		t.Errorf("tried again %d times, note %q", src.recaps-1, m.entries[a.PaneID].note)
+	}
+}
+
 func TestScrollingKeepsTheCursorInView(t *testing.T) {
 	m, _ := demoModel(t)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 12})

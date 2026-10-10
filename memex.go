@@ -369,6 +369,10 @@ func runMemexRecap(ctx context.Context, cfg config, s claudeSession) (recap, err
 		return recap{}, err
 	}
 	out, err := runSummaryCommand(ctx, cfg, s, summaryPrompt(s.Agent, conversation))
+	if (errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist)) && len(cfg.Summarizer) == 0 {
+		// The default summarizer is Claude Code, which they may not have.
+		return recap{}, errors.New("no summarizer: it's Claude Code by default, which isn't installed; set summarizer in config.json to a command of your own")
+	}
 	if err != nil {
 		return recap{}, fmt.Errorf("summarizer: %w", err)
 	}

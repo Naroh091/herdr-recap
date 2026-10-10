@@ -413,3 +413,16 @@ func TestTheSummarizerRunsAsTheAgentsPaneDoes(t *testing.T) {
 		t.Errorf("default summarizer model %q", got)
 	}
 }
+
+func TestWithoutClaudeTheRecapSaysWhatToSet(t *testing.T) {
+	oldMemex := runMemex
+	runMemex = func(context.Context, config, ...string) ([]byte, error) {
+		return []byte(`[{"record":{"role":"user","text":"question"}}]`), nil
+	}
+	t.Cleanup(func() { runMemex = oldMemex })
+	s := claudeSession{Agent: "opencode", ID: openCodeSession, Transcript: "/x", Stamp: "v1", MessageCount: 1}
+	_, err := runMemexRecap(context.Background(), withDefaults(config{Claude: "/nowhere/claude-that-isnt-there"}), s)
+	if err == nil || !strings.Contains(err.Error(), "set summarizer in config.json") {
+		t.Fatalf("got %v", err)
+	}
+}

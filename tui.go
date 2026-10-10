@@ -300,6 +300,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			e.settled = false
 		}
 		s := msg.session
+		// A Memex-backed session is looked up again every so often. One
+		// whose recap failed and that hasn't moved since isn't tried again
+		// (a summarizer that isn't there won't be there in 15 seconds), and
+		// goes on saying why.
+		if e.session != nil && e.session.ID == s.ID && e.session.Stamp == s.Stamp && s.Stamp != "" &&
+			strings.HasPrefix(e.note, "Couldn't recap") {
+			e.session, e.resolvedAt = &s, m.now()
+			return m, nil
+		}
 		e.session, e.note = &s, ""
 		e.resolvedAt, e.retryAt, e.resolveFailures = m.now(), time.Time{}, 0
 		if msg.cached != nil {

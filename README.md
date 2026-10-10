@@ -209,7 +209,8 @@ herdr integration for Codex is needed.
 That takes the conversation out of the agent that had it: Memex reads the
 end of it, and the user and assistant text goes to a summarizer, by default
 Claude Code (`haiku`) under the account of the agent's pane, with no prompt
-cache to reuse. Memex has to have indexed the session, and herdr has to
+cache to reuse. Without Claude Code, set `summarizer` to a command of your
+own: it gets the prompt on stdin and prints the recap. Memex has to have indexed the session, and herdr has to
 know its ID (its integration for that agent, `herdr integration install`); a
 row whose session Memex hasn't indexed yet says so, and is looked up again
 while the popup is open.
