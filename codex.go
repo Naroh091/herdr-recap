@@ -82,11 +82,11 @@ func resolveCodexSession(a agentInfo) (claudeSession, error) {
 const codexPrompt = "Recap this session in at most 40 words, for someone coming back to it: what it's working on, where it got to, and what's next. " +
 	"Answer with the recap alone, as plain text. Don't run any commands or use any tools."
 
-// codexArgs forks the session for one answer, written to out: nothing is
+// codexArgs forks the session for one answer to prompt, written to out: nothing is
 // saved (--ephemeral), and nothing it might run can write (read-only).
-func codexArgs(id, out string) []string {
+func codexArgs(id, out, prompt string) []string {
 	return []string{"exec", "fork", id, "--ephemeral", "--skip-git-repo-check",
-		"-c", `sandbox_mode="read-only"`, "-o", out, codexPrompt}
+		"-c", `sandbox_mode="read-only"`, "-o", out, prompt}
 }
 
 // codexBinary is the codex a recap runs: config.json's if set, else the one
@@ -103,14 +103,14 @@ func codexBinary(cfg config, s claudeSession) string {
 
 // runCodex runs the fork and returns its answer; a variable so tests can
 // stand one in.
-var runCodex = func(ctx context.Context, cfg config, s claudeSession) (string, error) {
+var runCodex = func(ctx context.Context, cfg config, s claudeSession, prompt string) (string, error) {
 	dir, err := os.MkdirTemp("", "herdr-recap-codex-")
 	if err != nil {
 		return "", err
 	}
 	defer os.RemoveAll(dir)
 	out := filepath.Join(dir, "recap.txt")
-	cmd := exec.CommandContext(ctx, codexBinary(cfg, s), codexArgs(s.ID, out)...)
+	cmd := exec.CommandContext(ctx, codexBinary(cfg, s), codexArgs(s.ID, out, prompt)...)
 	// Not in the agent's folder: the fork has the conversation, and has no
 	// business with the project's files.
 	cmd.Dir, cmd.Env = dir, agentEnv(s, "CODEX_HOME")
@@ -129,6 +129,23 @@ var runCodex = func(ctx context.Context, cfg config, s claudeSession) (string, e
 	return string(data), nil
 }
 
+// sessionTitle is the agent's title for its session, as herdr shows it less
+// what isn't the session's: Codex's terminal title is "<session> | <folder>",
+// or the folder alone before the session has a name.
+func sessionTitle(a agentInfo) string {
+	t := strings.TrimSpace(a.Title)
+	if a.Agent != "codex" {
+		return t
+	}
+	if i := strings.LastIndex(t, " | "); i >= 0 {
+		return strings.TrimSpace(t[:i])
+	}
+	if t == filepath.Base(a.Cwd) {
+		return ""
+	}
+	return t
+}
+
 // lastLine is where a command's error is, after whatever it logged on the way.
 func lastLine(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
@@ -136,7 +153,7 @@ func lastLine(s string) string {
 }
 
 func runCodexRecap(ctx context.Context, cfg config, s claudeSession) (recap, error) {
-	out, err := runCodex(ctx, cfg, s)
+	out, err := runCodex(ctx, cfg, s, codexPrompt)
 	if err != nil {
 		return recap{}, fmt.Errorf("codex: %w", err)
 	}

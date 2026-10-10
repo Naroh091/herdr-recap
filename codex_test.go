@@ -93,7 +93,10 @@ func TestCodexRecapsItselfOnceWhileItsSessionStandsStill(t *testing.T) {
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", t.TempDir())
 	calls := 0
 	oldCodex, oldClaude := runCodex, runCommand
-	runCodex = func(_ context.Context, _ config, s claudeSession) (string, error) {
+	runCodex = func(_ context.Context, _ config, s claudeSession, prompt string) (string, error) {
+		if prompt != codexPrompt {
+			return "CDX-7 Fix the Login Bug\n", nil
+		}
 		calls++
 		return "Fixing the login bug.\nNext, run \x1b[2Jthe tests.\n", nil
 	}
@@ -106,9 +109,9 @@ func TestCodexRecapsItselfOnceWhileItsSessionStandsStill(t *testing.T) {
 	write(t, path, `{"type":"session_meta"}`+"\n")
 	s := claudeSession{Agent: "codex", Native: true, ID: codexNative, Transcript: path}
 	cfg := withDefaults(config{})
-	// A slug for a title: no better one is asked for, that's Claude's.
+	// A slug for a title: Codex is asked for a better one too, in its own fork.
 	r, ran, err := ensureRecap(context.Background(), cfg, s, "a-slug-for-a-title", false)
-	if err != nil || !ran || r.Text != "Fixing the login bug. Next, run the tests." || r.Title != "" {
+	if err != nil || !ran || r.Text != "Fixing the login bug. Next, run the tests." || r.Title != "CDX-7 Fix the Login Bug" {
 		t.Fatalf("%+v %v %v", r, ran, err)
 	}
 	if _, ran, _ := ensureRecap(context.Background(), cfg, s, "", false); ran || calls != 1 {
@@ -125,7 +128,7 @@ func TestCodexRecapsItselfOnceWhileItsSessionStandsStill(t *testing.T) {
 }
 
 func TestCodexArgsForkWithoutSavingOrWriting(t *testing.T) {
-	args := codexArgs(codexNative, "/tmp/out.txt")
+	args := codexArgs(codexNative, "/tmp/out.txt", codexPrompt)
 	for _, want := range []string{"fork", codexNative, "--ephemeral", `sandbox_mode="read-only"`} {
 		if !slices.Contains(args, want) {
 			t.Errorf("args lack %q: %v", want, args)
@@ -148,5 +151,26 @@ func TestOtherAgentsAreRecappedOnlyWhenNamed(t *testing.T) {
 	}
 	if recapCapable(named, opencode) {
 		t.Error("opencode without a session ID for Memex to find")
+	}
+}
+
+func TestACodexTitleIsItsSessionsNotItsFolders(t *testing.T) {
+	for _, c := range []struct {
+		a    agentInfo
+		want string
+	}{
+		{agentInfo{Agent: "codex", Title: "Respond to greeting | herdr-recap", Cwd: "/x/herdr-recap"}, "Respond to greeting"},
+		{agentInfo{Agent: "codex", Title: "A | B | herdr-recap", Cwd: "/x/herdr-recap"}, "A | B"},
+		{agentInfo{Agent: "codex", Title: "herdr-recap", Cwd: "/x/herdr-recap"}, ""},
+		{agentInfo{Agent: "claude", Title: "Fix this | that", Cwd: "/x/herdr-recap"}, "Fix this | that"},
+	} {
+		if got := sessionTitle(c.a); got != c.want {
+			t.Errorf("%q: %q, want %q", c.a.Title, got, c.want)
+		}
+	}
+	// Renamed to what was suggested, it's not suggested again.
+	e := &entry{agent: agentInfo{Agent: "codex", Title: "CDX-7 Fix the Login Bug | repo"}, recap: &recap{Title: "CDX-7 Fix the Login Bug"}}
+	if suggestion(e) != "" {
+		t.Error("a title the agent already has is still on offer")
 	}
 }

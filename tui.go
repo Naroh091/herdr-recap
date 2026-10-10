@@ -462,7 +462,7 @@ func (m *model) updateAgents(agents []agentInfo, workspaces []workspaceInfo) tea
 		if e.renaming != "" {
 			// Its title says the rename was taken. One sent a while ago that
 			// doesn't show was taken too, as far as can be told.
-			if strings.TrimSpace(a.Title) == e.renaming || (!e.renameSent.IsZero() && m.now().Sub(e.renameSent) > renameWait) {
+			if sessionTitle(a) == e.renaming || (!e.renameSent.IsZero() && m.now().Sub(e.renameSent) > renameWait) {
 				cmds = append(cmds, m.endRename(e))
 			} else {
 				cmds = append(cmds, m.sendRename(e))
@@ -544,7 +544,7 @@ func (m *model) startRecap(e *entry, force bool) tea.Cmd {
 	if e.note != "" && strings.HasPrefix(e.note, "Couldn't recap") {
 		e.note = ""
 	}
-	return m.recapCmd(e.agent.PaneID, *e.session, e.agent.Title, force)
+	return m.recapCmd(e.agent.PaneID, *e.session, sessionTitle(e.agent), force)
 }
 
 // sessionNote says why an agent's session couldn't be found.
@@ -810,7 +810,7 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 // suggestion is the better title on offer for an agent: the one written
 // with its recap, until the agent has it. "" when there's none.
 func suggestion(e *entry) string {
-	if e.recap == nil || e.recap.Settled || e.recap.Title == strings.TrimSpace(e.agent.Title) {
+	if e.recap == nil || e.recap.Settled || e.recap.Title == sessionTitle(e.agent) {
 		return ""
 	}
 	return e.recap.Title
@@ -837,10 +837,10 @@ func (m model) rename() (tea.Model, tea.Cmd) {
 		src, pane, s := m.src, e.agent.PaneID, *e.session
 		return m, func() tea.Msg { return renamedMsg{pane, t, false, src.rename(pane, s)} }
 	}
-	if e.agent.Agent != "claude" {
-		// A title is asked of the conversation itself, and given with
-		// Claude's /rename.
-		m.flash = "Titles are suggested for Claude agents."
+	if e.agent.Agent != "claude" && e.agent.Agent != "codex" {
+		// A title is asked of the conversation itself, in a fork, and given
+		// with the agent's own /rename.
+		m.flash = "Titles are suggested for Claude and Codex agents."
 		return m, nil
 	}
 	if e.session == nil || e.session.Transcript == "" {
@@ -852,7 +852,7 @@ func (m model) rename() (tea.Model, tea.Cmd) {
 	}
 	e.titling = true
 	m.scrollTo() // the row is a line longer
-	src, ctx, pane, s, t := m.src, m.ctx, e.agent.PaneID, *e.session, e.agent.Title
+	src, ctx, pane, s, t := m.src, m.ctx, e.agent.PaneID, *e.session, sessionTitle(e.agent)
 	return m, func() tea.Msg {
 		r, err := src.suggest(ctx, s, t)
 		return titledMsg{pane, s.ID, r, err}

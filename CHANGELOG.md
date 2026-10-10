@@ -15,7 +15,8 @@ Recaps for other agents, off until you name them in `agents`
   (`haiku` by default, or your own `summarizer` command). Sessions are
   matched by the exact ID herdr reports, and the transcript is passed as
   data, with no tools, so it can't instruct the summarizer.
-- Titles stay Claude-only.
+- **Better titles for Codex agents too**: asked for in a fork of its own,
+  and given with Codex's `/rename`. Not for agents read through Memex.
 
 ## 0.5.0 - 2026-10-10
 

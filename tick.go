@@ -35,7 +35,7 @@ func tick(cfg config) error {
 			continue
 		}
 		// A rename asked for while it was busy, now that it's between turns.
-		if a.Agent == "claude" && (a.Status == "idle" || a.Status == "done") && renamePending(a.PaneID) {
+		if (a.Agent == "claude" || a.Agent == "codex") && (a.Status == "idle" || a.Status == "done") && renamePending(a.PaneID) {
 			if s, err := sessionOf(context.Background(), cfg, a); err != nil {
 				fmt.Fprintln(os.Stderr, "herdr-recap: renaming", a.PaneID+":", err)
 			} else if err := giveTitle(a.PaneID, s.ID); err != nil {
@@ -152,7 +152,7 @@ func recapLater(ctx context.Context, cfg config, after time.Duration, seq int64,
 	if err != nil {
 		return err
 	}
-	r, ran, err := ensureRecap(ctx, cfg, s, now.Title, false)
+	r, ran, err := ensureRecap(ctx, cfg, s, sessionTitle(*now), false)
 	if errors.Is(err, errNothingYet) || (err == nil && !ran) {
 		return nil
 	} else if err != nil {

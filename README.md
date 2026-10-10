@@ -216,8 +216,12 @@ while the popup is open.
 
 Either way a recap is a request you pay for or that counts against a plan,
 which is why it's yours to turn on. An agent you haven't named says *Recaps
-aren't available for this agent.* Titles are suggested for Claude agents
-only.
+aren't available for this agent.*
+
+[Better titles](#better-titles) are for Claude and Codex agents: Codex is
+asked for one in a fork too, and renamed with its own `/rename`. Its
+terminal title is the session's name and its folder (*Fix the Login Bug |
+my-repo*); the name is what's judged and replaced.
 
 ## When recaps are written
 

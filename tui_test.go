@@ -473,7 +473,7 @@ func TestCtrlRAsksForATitleWhenNoneIsSuggested(t *testing.T) {
 	// Another agent's: titles are asked of Claude's own conversations.
 	m = selectPane(m, "w2:p3")
 	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
-	if cmd != nil || next.(model).flash != "Titles are suggested for Claude agents." {
+	if cmd != nil || next.(model).flash != "Recaps aren't available for this agent." {
 		t.Errorf("flash %q", next.(model).flash)
 	}
 	// Nothing said yet: nothing to go by.

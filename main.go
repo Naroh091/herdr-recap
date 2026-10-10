@@ -155,7 +155,7 @@ func runRecapCommand(ctx context.Context, cfg config, args []string) error {
 	if agents, err := listAgents(); err == nil {
 		for _, a := range agents {
 			if a.PaneID == pane {
-				title = a.Title
+				title = sessionTitle(a)
 			}
 		}
 	}

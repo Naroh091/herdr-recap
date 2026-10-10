@@ -94,12 +94,26 @@ func titleArgs(id, prompt string) []string {
 // suggestTitle asks for a better title than the one the agent has. An
 // answer that isn't a title (several lines, a sentence, too long) is an error.
 func suggestTitle(ctx context.Context, cfg config, s claudeSession, title string) (string, float64, error) {
-	out, err := runCommand(ctx, cfg, s, titleArgs(s.ID, titlePrompt(title, gitBranch(s.Cwd))))
+	prompt := titlePrompt(title, gitBranch(s.Cwd))
+	if s.Native {
+		// Codex, asked the same in a fork of its own.
+		out, err := runCodex(ctx, cfg, s, prompt)
+		if err != nil {
+			return "", 0, fmt.Errorf("codex: %w", err)
+		}
+		t, err := cleanTitle(clean(out, true))
+		return t, 0, err
+	}
+	out, err := runCommand(ctx, cfg, s, titleArgs(s.ID, prompt))
 	if err != nil {
 		return "", 0, err
 	}
 	return parseTitle(out)
 }
+
+// titleable: the session's agent can be asked for a title and given one:
+// Claude's and Codex's, each forked for the asking and with a /rename.
+func titleable(s claudeSession) bool { return claudes(s) || s.Native }
 
 func parseTitle(out []byte) (string, float64, error) {
 	text, cost, isError, err := claudeResult(out, true)
@@ -109,20 +123,27 @@ func parseTitle(out []byte) (string, float64, error) {
 	case isError:
 		return "", cost, fmt.Errorf("claude: %s", shorten(text, 200))
 	}
+	t, err := cleanTitle(text)
+	return t, cost, err
+}
+
+// cleanTitle is an answer as a title, or an error when it isn't one: several
+// lines, a sentence, too long.
+func cleanTitle(text string) (string, error) {
 	text = strings.TrimSpace(text)
 	if strings.Contains(text, "\n") {
-		return "", cost, errors.New("claude gave more than a title")
+		return "", errors.New("the answer was more than a title")
 	}
 	// It's typed into the agent as /rename's argument: plain words only.
 	t := strings.Join(strings.Fields(strings.Trim(text, "\"'`*_ ")), " ")
 	t = strings.TrimRight(t, ".")
 	switch {
 	case t == "":
-		return "", cost, errors.New("claude gave an empty title")
+		return "", errors.New("the answer was an empty title")
 	case strings.HasPrefix(t, "/"), ansi.StringWidth(t) > maxTitleWidth+10, len(strings.Fields(t)) > 9:
-		return "", cost, errors.New("claude gave more than a title")
+		return "", errors.New("the answer was more than a title")
 	}
-	return t, cost, nil
+	return t, nil
 }
 
 // quietSince: nothing has been said in the transcript past offset from.
@@ -162,8 +183,8 @@ func quietSince(path string, from int64) bool {
 // ensureTitle asks for a title now, whatever the agent's own is like (the
 // popup's ^r), and keeps it with the session's recap as a new suggestion.
 func ensureTitle(ctx context.Context, cfg config, s claudeSession, title string) (recap, error) {
-	if !claudes(s) {
-		return recap{}, errors.New("titles are suggested for Claude agents")
+	if !titleable(s) {
+		return recap{}, errors.New("titles are suggested for Claude and Codex agents")
 	}
 	if s.Transcript == "" {
 		return recap{}, errNothingYet

@@ -138,7 +138,7 @@ func ensureRecap(ctx context.Context, cfg config, s claudeSession, title string,
 	}
 	// At the same time as the recap: both read the same cached conversation.
 	var suggested chan suggestion
-	if claudes(s) && (c == nil || c.Title == "") && poorTitle(title, gitBranch(s.Cwd)) {
+	if titleable(s) && (c == nil || c.Title == "") && poorTitle(title, gitBranch(s.Cwd)) {
 		suggested = make(chan suggestion, 1)
 		go func() {
 			t, cost, err := suggestTitle(ctx, cfg, s, title)
