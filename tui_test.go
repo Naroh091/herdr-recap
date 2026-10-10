@@ -607,6 +607,19 @@ func TestAFailedMemexRecapIsntTriedAgainUntilTheSessionMoves(t *testing.T) {
 	}
 }
 
+func TestARecapUsesAWidePopupsWidth(t *testing.T) {
+	m, _ := demoModel(t)
+	e := m.entries["w2:p1"] // its recap is two lines at 100 wide
+	if lines, _ := m.body(e); len(lines) != 2 {
+		t.Fatalf("%d lines at 100 wide: %q", len(lines), lines)
+	}
+	m.width = 200
+	lines, _ := m.body(e)
+	if len(lines) != 1 || ansi.StringWidth(lines[0]) <= 100 {
+		t.Errorf("%d lines at 200 wide: %q", len(lines), lines)
+	}
+}
+
 func TestScrollingKeepsTheCursorInView(t *testing.T) {
 	m, _ := demoModel(t)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 12})
