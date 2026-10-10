@@ -24,7 +24,7 @@ func withHerdr(t *testing.T, agents []agentInfo, s claudeSession) *[][]string {
 }
 
 func claudeAgent(pane, status string, seq int64) agentInfo {
-	return agentInfo{PaneID: pane, Agent: "claude", Status: status, StateChangeSeq: seq}
+	return agentInfo{PaneID: pane, Agent: "claude", Status: status, StateChangeSeq: seq, Title: "Fix login"}
 }
 
 func TestTickSchedulesAgentsWaitingOnYou(t *testing.T) {

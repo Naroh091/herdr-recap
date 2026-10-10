@@ -62,6 +62,21 @@ type repliedMsg struct {
 	err         error
 }
 
+// renamedMsg is how a rename went: noted as wanted, or (sent) typed into
+// the agent.
+type renamedMsg struct {
+	pane, title string
+	sent        bool
+	err         error
+}
+
+// titledMsg is a title asked for (^r), in the session's recap.
+type titledMsg struct {
+	pane, session string
+	recap         recap
+	err           error
+}
+
 // pollEvery is how often the open popup re-reads herdr's agents.
 const pollEvery = time.Second
 
@@ -70,6 +85,13 @@ const maxReplyLines = 6
 
 // maxRecapping bounds how many recaps run at once: each is a claude process.
 const maxRecapping = 6
+
+// renameWait is how long a rename typed into an agent is waited on to show
+// in its title, before the row stops saying it's being renamed.
+const renameWait = 15 * time.Second
+
+// The buttons after a suggested title: take it, or don't be offered it again.
+const renameLabel, ignoreLabel = "Rename", "Ignore"
 
 // recapLines is the most lines a recap is given; Claude keeps them under 40
 // words, which is two or three lines in a popup.
@@ -92,6 +114,16 @@ type entry struct {
 	branch      string // the git branch in the agent's folder
 	branchAt    string // the folder and status change branch was read at
 	changes     gitChanges
+	// renaming is the title it's being given (^r): typed into it as /rename
+	// once it's free to take it (renameSent), and there until its title says so.
+	renaming    string
+	renameNoted bool // it's kept with the recap: given even with the popup closed
+	renameSent  time.Time
+	titling     bool // a title is being asked for (^r, with none suggested)
+	// settled: its suggested title was taken or turned down here. A recap
+	// read or written before that was noted with it doesn't say so, and
+	// mustn't bring the suggestion back.
+	settled bool
 }
 
 type model struct {
@@ -183,7 +215,7 @@ func (m model) resolve(a agentInfo) tea.Cmd {
 	}
 }
 
-func (m model) recapCmd(pane string, s claudeSession, force bool) tea.Cmd {
+func (m model) recapCmd(pane string, s claudeSession, title string, force bool) tea.Cmd {
 	src, ctx, sem := m.src, m.ctx, m.sem
 	return func() tea.Msg {
 		select {
@@ -192,7 +224,7 @@ func (m model) recapCmd(pane string, s claudeSession, force bool) tea.Cmd {
 			return recapMsg{pane: pane, session: s.ID, err: ctx.Err()}
 		}
 		defer func() { <-sem }()
-		r, err := src.recap(ctx, s, force)
+		r, err := src.recap(ctx, s, title, force)
 		return recapMsg{pane: pane, session: s.ID, recap: r, err: err}
 	}
 }
@@ -243,11 +275,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if e.session == nil || e.session.ID != msg.session.ID {
 			e.recap = nil // a different conversation now: the old recap isn't its
+			e.settled = false
 		}
 		s := msg.session
 		e.session, e.note = &s, ""
 		if msg.cached != nil {
 			e.recap = msg.cached
+			e.recap.Settled = e.recap.Settled || e.settled
+			// A rename asked for before the popup was last closed, still to
+			// be given: the row goes on saying so.
+			if e.renaming == "" && msg.cached.Renaming {
+				e.renaming, e.renameNoted = suggestion(e), true
+			}
 		}
 		e.current = msg.current
 		if s.Transcript == "" {
@@ -284,6 +323,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				e.note = "Couldn't recap: " + msg.err.Error()
 			default:
 				r := msg.recap
+				r.Settled = r.Settled || e.settled
 				// Current only if the conversation didn't move on meanwhile.
 				e.recap, e.current, e.note = &r, !again, ""
 			}
@@ -313,6 +353,50 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			m.flash = "Sent to " + shorten(msg.title, 60) + "."
 		}
+		return m, nil
+
+	case titledMsg:
+		e := m.entries[msg.pane]
+		if e == nil {
+			return m, nil
+		}
+		e.titling = false
+		switch {
+		case e.session == nil || e.session.ID != msg.session, errors.Is(msg.err, context.Canceled):
+		case msg.err != nil:
+			m.err = "Couldn't suggest a title: " + msg.err.Error()
+		default:
+			e.settled = false // a new one, asked for
+			if e.recap == nil {
+				r := msg.recap
+				e.recap = &r
+			} else {
+				e.recap.Title, e.recap.Settled = msg.recap.Title, false
+			}
+			if suggestion(e) == "" {
+				m.flash = shorten(title(e.agent), 40) + " would keep the title it has."
+			}
+		}
+		m.scrollTo()
+		return m, nil
+
+	case renamedMsg:
+		e := m.entries[msg.pane]
+		switch {
+		case e == nil || e.renaming != msg.title:
+			return m, nil
+		case msg.err == nil && !msg.sent:
+			e.renameNoted = true
+			return m, m.sendRename(e) // now typed in, if it's free
+		case msg.err == nil:
+			return m, nil // sent: its title says when it's taken
+		}
+		e.renameSent = time.Time{}
+		if msg.sent && isHerdrCode(msg.err, "agent_blocked") {
+			return m, nil // it's asking something: renamed once it's free
+		}
+		e.renaming, e.renameNoted = "", false
+		m.err = "Couldn't rename " + shorten(title(e.agent), 40) + ": " + msg.err.Error()
 		return m, nil
 
 	case focusedMsg:
@@ -352,6 +436,15 @@ func (m *model) updateAgents(agents []agentInfo, workspaces []workspaceInfo) tea
 		}
 		kindChanged := e.agent.Agent != a.Agent
 		e.agent = a
+		if e.renaming != "" {
+			// Its title says the rename was taken. One sent a while ago that
+			// doesn't show was taken too, as far as can be told.
+			if strings.TrimSpace(a.Title) == e.renaming || (!e.renameSent.IsZero() && m.now().Sub(e.renameSent) > renameWait) {
+				cmds = append(cmds, m.endRename(e))
+			} else {
+				cmds = append(cmds, m.sendRename(e))
+			}
+		}
 		// The branch can change with the folder or on any turn: read it again
 		// then (a few small files), not every second.
 		if at := a.Cwd + "\x00" + strconv.FormatInt(a.StateChangeSeq, 10); a.Cwd != "" && e.branchAt != at {
@@ -401,7 +494,7 @@ func (m *model) startRecap(e *entry, force bool) tea.Cmd {
 	if e.note != "" && strings.HasPrefix(e.note, "Couldn't recap") {
 		e.note = ""
 	}
-	return m.recapCmd(e.agent.PaneID, *e.session, force)
+	return m.recapCmd(e.agent.PaneID, *e.session, e.agent.Title, force)
 }
 
 // sessionNote says why an agent's session couldn't be found.
@@ -480,7 +573,7 @@ func (m model) matches(e *entry) bool {
 		}
 	}
 	if e.recap != nil {
-		hay = append(hay, e.recap.Text)
+		hay = append(hay, e.recap.Text, suggestion(e))
 	}
 	hay = append(hay, tokenValues(e.agent.Tokens, m.tokens)...)
 	all := strings.ToLower(strings.Join(hay, " "))
@@ -576,7 +669,9 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.activate()
 	case "ctrl+r":
-		return m.recapAgain()
+		return m.rename()
+	case "ctrl+x":
+		return m.ignore()
 	}
 
 	// Anything else edits the filter.
@@ -659,21 +754,92 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 	return m, func() tea.Msg { return focusedMsg{src.focus(pane)} }
 }
 
-// recapAgain writes the selected agent's recap anew, current or not.
-func (m model) recapAgain() (tea.Model, tea.Cmd) {
+// suggestion is the better title on offer for an agent: the one written
+// with its recap, until the agent has it. "" when there's none.
+func suggestion(e *entry) string {
+	if e.recap == nil || e.recap.Settled || e.recap.Title == strings.TrimSpace(e.agent.Title) {
+		return ""
+	}
+	return e.recap.Title
+}
+
+// titled: the row has a line about a better title: one on offer, being
+// asked for, or being given.
+func titled(e *entry) bool {
+	return e.titling || e.renaming != "" || suggestion(e) != ""
+}
+
+// rename gives the selected agent its suggested title, or with none on
+// offer asks for one, which is then yours to take or not.
+func (m model) rename() (tea.Model, tea.Cmd) {
 	e := m.selected()
-	switch {
-	case e == nil:
+	if e == nil || e.renaming != "" || e.titling {
 		return m, nil
-	case e.session == nil || e.session.Transcript == "":
+	}
+	m.err = ""
+	if t := suggestion(e); t != "" && e.session != nil {
+		// Noted first, with its recap: it's given even if the popup closes
+		// before the agent is free to take it.
+		e.renaming = t
+		src, pane, s := m.src, e.agent.PaneID, *e.session
+		return m, func() tea.Msg { return renamedMsg{pane, t, false, src.rename(pane, s)} }
+	}
+	if e.session == nil || e.session.Transcript == "" {
+		m.flash = "There's nothing to go by for a title yet."
 		if e.note != "" {
 			m.flash = e.note
 		}
 		return m, nil
-	case e.recapping:
+	}
+	e.titling = true
+	m.scrollTo() // the row is a line longer
+	src, ctx, pane, s, t := m.src, m.ctx, e.agent.PaneID, *e.session, e.agent.Title
+	return m, func() tea.Msg {
+		r, err := src.suggest(ctx, s, t)
+		return titledMsg{pane, s.ID, r, err}
+	}
+}
+
+// sendRename types the rename into the agent (Claude's /rename), once: when
+// it's between turns. One that's working or asking something is renamed when
+// it's done, the row saying so meanwhile; with the popup closed by then,
+// tick does it.
+func (m *model) sendRename(e *entry) tea.Cmd {
+	if (e.agent.Status != "idle" && e.agent.Status != "done") || !e.renameSent.IsZero() || !e.renameNoted || e.session == nil {
+		return nil
+	}
+	e.renameSent = m.now()
+	src, pane, t, s := m.src, e.agent.PaneID, e.renaming, *e.session
+	return func() tea.Msg { return renamedMsg{pane, t, true, src.give(pane, s)} }
+}
+
+// ignore turns the selected agent's suggested title down.
+func (m model) ignore() (tea.Model, tea.Cmd) {
+	e := m.selected()
+	if e == nil || e.renaming != "" || suggestion(e) == "" {
 		return m, nil
 	}
-	return m, m.startRecap(e, true)
+	cmd := m.endRename(e)
+	m.scrollTo() // the row is a line shorter
+	return m, cmd
+}
+
+// endRename: the agent has its new title, or keeps the one it had. Either
+// way the suggestion isn't offered again.
+func (m *model) endRename(e *entry) tea.Cmd {
+	e.renaming, e.renameNoted, e.renameSent = "", false, time.Time{}
+	e.settled = true
+	if e.recap != nil {
+		e.recap.Settled = true
+	}
+	if e.session == nil {
+		return nil
+	}
+	src, s := m.src, *e.session
+	return func() tea.Msg {
+		_ = src.settled(s)
+		return nil
+	}
 }
 
 func (m *model) move(delta int) {
@@ -732,6 +898,9 @@ func (m model) entryHeight(i int) int {
 	}
 	body, _ := m.body(e)
 	n := 1 + len(body) + 1 // title, recap, a blank after
+	if titled(e) {
+		n++
+	}
 	if m.hasDetails(e, meta) {
 		n++
 	}
@@ -746,7 +915,7 @@ func (m model) hasDetails(e *entry, meta *sessionMeta) bool {
 	return e.branch != "" || (meta != nil && (meta.Branch != "" || meta.TasksTotal > 0)) ||
 		!e.changes.empty() || (e.agent.Agent != "claude" && e.agent.Agent != "") ||
 		len(tokenValues(e.agent.Tokens, m.tokens)) > 0 ||
-		(e.recap != nil && (e.recapping || !e.current))
+		(e.recap != nil && e.recap.Text != "" && (e.recapping || !e.current))
 }
 
 // unusualMode is a permission mode worth saying: anything but the default.
@@ -784,19 +953,26 @@ func (m *model) scrollTo() {
 
 // entryAt is the entry drawn on screen line y, if any.
 func (m model) entryAt(y int) (int, bool) {
+	i, _, ok := m.entryLineAt(y)
+	return i, ok
+}
+
+// entryLineAt is the entry drawn on screen line y, and which of its lines
+// that is (0 its title).
+func (m model) entryLineAt(y int) (i, row int, ok bool) {
 	line := listTop
 	for i := m.offset; i < len(m.order); i++ {
 		line += m.headingHeight(i) // a stage's heading isn't an entry
 		h := m.entryHeight(i)
 		if y >= line && y < line+h-1 { // not its trailing blank
-			return i, true
+			return i, y - line, true
 		}
 		line += h
 		if line >= listTop+m.listHeight() {
 			break
 		}
 	}
-	return 0, false
+	return 0, 0, false
 }
 
 // wrap breaks text into lines of at most w cells, at most n of them, the
@@ -961,6 +1137,11 @@ func (m model) viewEntry(e *entry, selected bool) []string {
 	rightText := styleDim.Render(strings.Join(right, " · "))
 	room := max(1, w-lipgloss.Width(left)-lipgloss.Width(rightText)-2)
 	lines := []string{fitRow(left, style.Render(shorten(title(e.agent), room)), rightText, w)}
+	// A better title than a poor one, right under it (the mouse counts on that).
+	if titled(e) {
+		l, _, _ := m.suggestionLine(e)
+		lines = append(lines, l)
+	}
 
 	// What a blocked agent is waiting for: its pending question or request.
 	if e.agent.Status == "blocked" && meta != nil && meta.Pending != "" {
@@ -994,6 +1175,28 @@ func (m model) viewEntry(e *entry, selected bool) []string {
 	return append(lines, "")
 }
 
+// suggestionLine is the line under a poor title: a better one, and the
+// buttons that give it to the agent or turn it down, with the cells each is
+// on (none while it's being renamed, which the line says instead).
+func (m model) suggestionLine(e *entry) (line string, rename, ignore [2]int) {
+	if e.renaming != "" || e.titling {
+		// Dots that come and go: it's happening. A spinner's glyphs are
+		// the agent's status, at the start of the row.
+		doing := "Finding a title"
+		if e.renaming != "" {
+			doing = "Renaming to " + e.renaming
+		}
+		dots := strings.Repeat(".", 1+int(m.now().UnixMilli()/400%3))
+		return "   " + styleDim.Render(shorten(doing, max(1, m.width-8))+dots), rename, ignore
+	}
+	t := shorten(suggestion(e), max(1, m.width-11-lipgloss.Width(renameLabel+ignoreLabel)))
+	x := 5 + lipgloss.Width(t) + 2
+	rename = [2]int{x, x + lipgloss.Width(renameLabel)}
+	ignore = [2]int{rename[1] + 3, rename[1] + 3 + lipgloss.Width(ignoreLabel)}
+	return "   " + styleDim.Render("→ ") + styleLead.Render(t) + "  " + styleHintHot.Render(renameLabel) +
+		styleDim.Render(" · ") + styleDim.Underline(true).Render(ignoreLabel), rename, ignore
+}
+
 // details is the line under a title, each piece in its own colour: branch,
 // uncommitted and unpushed work, task progress, the pane's tokens, and how
 // current the recap is. Model and mode are the selected row's, in about.
@@ -1023,9 +1226,11 @@ func (m model) details(e *entry, meta *sessionMeta) []string {
 		info = append(info, tokenText(v))
 	}
 	switch {
-	case e.recapping && e.recap != nil:
+	case e.recap == nil || e.recap.Text == "":
+		// None yet (a recap that's only a suggested title isn't one).
+	case e.recapping:
 		info = append(info, styleDim.Render("recapping…"))
-	case e.recap != nil && !e.current:
+	case !e.current:
 		info = append(info, styleDim.Render("recap from "+ago(m.now(), e.recap.At)))
 	}
 	return info
@@ -1224,7 +1429,14 @@ func (m model) footer() []hint {
 		esc = "esc all"
 	}
 	// By kind, so the colours sit together: go, act, view, leave.
-	return []hint{{"enter go to agent", "enter", hintGo}, {"tab reply", "tab", hintAct}, {"^r recap again", "ctrl+r", hintView}, {"←→ stage", "right", hintView}, {esc, "esc", hintQuiet}}
+	hs := []hint{{"enter go to agent", "enter", hintGo}, {"tab reply", "tab", hintAct}}
+	// ^r takes the title on offer, or with none asks for one.
+	if e := m.selected(); e != nil && e.renaming == "" && suggestion(e) != "" {
+		hs = append(hs, hint{"^r rename", "ctrl+r", hintAct}, hint{"^x ignore", "ctrl+x", hintView})
+	} else {
+		hs = append(hs, hint{"^r suggest title", "ctrl+r", hintView})
+	}
+	return append(hs, hint{"←→ stage", "right", hintView}, hint{esc, "esc", hintQuiet})
 }
 
 func runPicker(ctx context.Context, cfg config, demo bool) error {

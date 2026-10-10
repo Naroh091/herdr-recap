@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -35,7 +37,7 @@ func TestWriteDemoScreens(t *testing.T) {
 	useTheme(&catppuccin)
 	t.Cleanup(func() { useTheme(nil) })
 	m, _ := demoModel(t)
-	m.width, m.height = 100, 50
+	m.width, m.height = 100, 51
 
 	// Coming back: what needs you first, what each agent got to.
 	save("agents", m)
@@ -46,6 +48,32 @@ func TestWriteDemoScreens(t *testing.T) {
 	next, _ := reply.Update(tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
 	reply = typeText(next.(model), "squash the fixup commits and open the PR as a draft")
 	save("reply", reply)
+
+	// Better titles: one on offer, one waiting for its agent to finish, and
+	// two already taken.
+	src := newDemoSource()
+	src.delay = 0
+	src.titles = map[string]string{
+		"w2:p1": "BIL-207 Move Billing Webhooks to v2 Events",
+		"w1:p3": "fix-checkout-flake",
+		"w1:p1": "settings-dark-mode",
+		"w3:p2": "DOC-88 Release Notes for 2.4",
+	}
+	for id, title := range map[string]string{
+		"0b3c9a51-5d7e-4f7a-9c35-1a2b3c4d5e02": "WEB-512 Fix the Flaky Checkout Test",
+		"0b3c9a51-5d7e-4f7a-9c35-1a2b3c4d5e03": "WEB-498 Dark Mode for the Settings Page",
+	} {
+		r := src.recaps[id]
+		r.Title = title
+		src.recaps[id] = r
+	}
+	titles := newModel(context.Background(), src)
+	titles.width, titles.height = 100, 53
+	titles.now = func() time.Time { return src.started }
+	titles = selectPane(settle(t, titles, titles.loadAgents()), "w1:p3")
+	// Asked of an agent at work: it's renamed when it's done.
+	titles.entries["w1:p1"].renaming = "WEB-498 Dark Mode for the Settings Page"
+	save("titles", titles)
 }
 
 func press(m model, k string) model {

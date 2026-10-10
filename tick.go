@@ -21,7 +21,7 @@ func waiting(a agentInfo) bool {
 // tick runs on every agent status change (and at startup). It only reads the
 // agent list: for each Claude agent that is now waiting on you it starts a
 // detached `recap --after` to write its recap later, if you haven't looked by
-// then. A status change is one agent's, so only that agent is considered;
+// then. An agent with a rename waiting for it to be between turns is given it. A status change is one agent's, so only that agent is considered;
 // with no event (startup, by hand), every agent is.
 func tick(cfg config) error {
 	agents, err := agentsNow()
@@ -31,7 +31,18 @@ func tick(cfg config) error {
 	only := hookPane()
 	pruneScheduled()
 	for _, a := range agents {
-		if (only != "" && a.PaneID != only) || !waiting(a) {
+		if only != "" && a.PaneID != only {
+			continue
+		}
+		// A rename asked for while it was busy, now that it's between turns.
+		if a.Agent == "claude" && (a.Status == "idle" || a.Status == "done") && renamePending(a.PaneID) {
+			if s, err := sessionOf(a.PaneID); err != nil {
+				fmt.Fprintln(os.Stderr, "herdr-recap: renaming", a.PaneID+":", err)
+			} else if err := giveTitle(a.PaneID, s.ID); err != nil {
+				fmt.Fprintln(os.Stderr, "herdr-recap: renaming", a.PaneID+":", err)
+			}
+		}
+		if !waiting(a) {
 			continue
 		}
 		if err := schedule(cfg, a); err != nil {
@@ -137,7 +148,7 @@ func recapLater(ctx context.Context, cfg config, after time.Duration, seq int64,
 	if err != nil {
 		return err
 	}
-	r, ran, err := ensureRecap(ctx, cfg, s, false)
+	r, ran, err := ensureRecap(ctx, cfg, s, now.Title, false)
 	if errors.Is(err, errNothingYet) || (err == nil && !ran) {
 		return nil
 	} else if err != nil {

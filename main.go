@@ -129,7 +129,16 @@ func runRecapCommand(ctx context.Context, cfg config, args []string) error {
 	if err != nil {
 		return err
 	}
-	r, _, err := ensureRecap(ctx, cfg, s, *force)
+	// The pane's title, for whether to suggest a better one.
+	title := ""
+	if agents, err := listAgents(); err == nil {
+		for _, a := range agents {
+			if a.PaneID == pane {
+				title = a.Title
+			}
+		}
+	}
+	r, _, err := ensureRecap(ctx, cfg, s, title, *force)
 	if err != nil {
 		return err
 	}

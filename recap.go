@@ -24,6 +24,13 @@ type recap struct {
 	Size    int64     `json:"size"`
 	ModTime time.Time `json:"mod_time"`
 	CostUSD float64   `json:"cost_usd"`
+	// Title is a better title for the session than the one it had when the
+	// recap was written, if that one was poor. Renaming: the agent is to be
+	// given it, once it's between turns. Settled: it's been given or turned
+	// down, and isn't offered again.
+	Title    string `json:"title,omitempty"`
+	Renaming bool   `json:"renaming,omitempty"`
+	Settled  bool   `json:"title_settled,omitempty"`
 }
 
 func recapDir() string { return filepath.Join(stateDir(), "recaps") }
@@ -73,13 +80,17 @@ func transcriptStamp(path string) (int64, time.Time) {
 	return fi.Size(), fi.ModTime()
 }
 
-// fresh: the cached recap still describes the transcript.
+// fresh: the cached recap still describes the transcript, which hasn't
+// changed since, or only by what isn't conversation (a rename, say).
 func fresh(r *recap, s claudeSession) bool {
 	if r == nil {
 		return false
 	}
 	size, mod := transcriptStamp(s.Transcript)
-	return r.Size == size && r.ModTime.Equal(mod)
+	if r.Size == size && r.ModTime.Equal(mod) {
+		return true
+	}
+	return r.Size > 0 && size > r.Size && quietSince(s.Transcript, r.Size)
 }
 
 // errNothingYet: the session has no conversation to recap.
@@ -89,7 +100,11 @@ var errNothingYet = errors.New("nothing to recap yet")
 // one is out of date, or with force regardless. One recap per session runs
 // at a time: a second caller waits for the first and takes its result rather
 // than paying twice, unless it forces, when it gets a new one after.
-func ensureRecap(ctx context.Context, cfg config, s claudeSession, force bool) (r recap, ran bool, err error) {
+//
+// title is the agent's title as herdr shows it. A poor one (poorTitle) has a
+// better one asked for alongside the recap, once per session: the suggestion
+// is kept from recap to recap.
+func ensureRecap(ctx context.Context, cfg config, s claudeSession, title string, force bool) (r recap, ran bool, err error) {
 	if s.Transcript == "" {
 		return recap{}, false, errNothingYet
 	}
@@ -99,11 +114,37 @@ func ensureRecap(ctx context.Context, cfg config, s claudeSession, force bool) (
 		return recap{}, false, err
 	}
 	defer unlock()
-	if c := loadRecap(s.ID); fresh(c, s) && (!force || c.At.After(started)) {
+	c := loadRecap(s.ID)
+	if fresh(c, s) && (!force || c.At.After(started)) {
 		return *c, false, nil
 	}
 	size, mod := transcriptStamp(s.Transcript)
+	type suggestion struct {
+		title string
+		cost  float64
+		err   error
+	}
+	// At the same time as the recap: both read the same cached conversation.
+	var suggested chan suggestion
+	if (c == nil || c.Title == "") && poorTitle(title, gitBranch(s.Cwd)) {
+		suggested = make(chan suggestion, 1)
+		go func() {
+			t, cost, err := suggestTitle(ctx, cfg, s, title)
+			suggested <- suggestion{t, cost, err}
+		}()
+	}
 	r, err = runRecap(ctx, cfg, s)
+	if c != nil {
+		r.Title, r.Renaming, r.Settled = c.Title, c.Renaming, c.Settled
+	}
+	if suggested != nil {
+		// Without one the recap is as good: it's asked for again with the next.
+		sg := <-suggested
+		if sg.err != nil {
+			fmt.Fprintln(os.Stderr, "herdr-recap: a title for", s.ID+":", sg.err)
+		}
+		r.Title, r.Renaming, r.CostUSD = sg.title, false, r.CostUSD+sg.cost
+	}
 	if err != nil {
 		return recap{}, false, err
 	}
@@ -160,11 +201,12 @@ func recapEnv(s claudeSession) []string {
 	return env
 }
 
-// runCommand runs the recap; a variable so tests can stand one in.
-var runCommand = func(ctx context.Context, cfg config, s claudeSession) ([]byte, error) {
+// runCommand runs claude on the session, for its recap or a title; a
+// variable so tests can stand one in.
+var runCommand = func(ctx context.Context, cfg config, s claudeSession, args []string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(cfg.TimeoutSeconds)*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, claudeBinary(cfg, s), recapArgs(s.ID)...)
+	cmd := exec.CommandContext(ctx, claudeBinary(cfg, s), args...)
 	cmd.Dir, cmd.Env = s.Cwd, recapEnv(s)
 	// Past the timeout, don't wait on pipes a hook's child may still hold:
 	// the session's lock would be held with them.
@@ -194,7 +236,7 @@ func claudeBinary(cfg config, s claudeSession) string {
 }
 
 func runRecap(ctx context.Context, cfg config, s claudeSession) (recap, error) {
-	out, err := runCommand(ctx, cfg, s)
+	out, err := runCommand(ctx, cfg, s, recapArgs(s.ID))
 	if err != nil {
 		return recap{}, err
 	}
@@ -205,26 +247,35 @@ func runRecap(ctx context.Context, cfg config, s claudeSession) (recap, error) {
 	return recap{Session: s.ID, Text: text, At: time.Now(), CostUSD: cost}, nil
 }
 
-// parseRecap reads `claude -p --output-format json`'s result.
-func parseRecap(out []byte) (string, float64, error) {
+// claudeResult reads `claude -p --output-format json`'s result: what it
+// said, cleaned, and what it cost.
+func claudeResult(out []byte, keepBreaks bool) (text string, cost float64, isError bool, err error) {
 	var res struct {
 		IsError bool    `json:"is_error"`
 		Result  string  `json:"result"`
 		Cost    float64 `json:"total_cost_usd"`
 	}
 	if err := json.Unmarshal(bytes.TrimSpace(out), &res); err != nil {
-		return "", 0, fmt.Errorf("claude's reply: %w", err)
+		return "", 0, false, fmt.Errorf("claude's reply: %w", err)
 	}
-	text := strings.Join(strings.Fields(clean(res.Result, false)), " ")
+	return clean(res.Result, keepBreaks), res.Cost, res.IsError, nil
+}
+
+func parseRecap(out []byte) (string, float64, error) {
+	text, cost, isError, err := claudeResult(out, false)
+	if err != nil {
+		return "", 0, err
+	}
+	text = strings.Join(strings.Fields(text), " ")
 	switch {
-	case res.IsError:
-		return "", res.Cost, fmt.Errorf("claude: %s", shorten(text, 200))
+	case isError:
+		return "", cost, fmt.Errorf("claude: %s", shorten(text, 200))
 	case strings.HasPrefix(text, "Nothing to recap yet"):
-		return "", res.Cost, errNothingYet
+		return "", cost, errNothingYet
 	case strings.HasPrefix(text, "Couldn't generate a recap"), strings.HasPrefix(text, "Recap cancelled"):
-		return "", res.Cost, errors.New(text)
+		return "", cost, errors.New(text)
 	case text == "":
-		return "", res.Cost, errors.New("claude gave an empty recap")
+		return "", cost, errors.New("claude gave an empty recap")
 	}
-	return text, res.Cost, nil
+	return text, cost, nil
 }

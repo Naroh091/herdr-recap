@@ -19,7 +19,7 @@ func withClaude(t *testing.T, reply string) *atomic.Int32 {
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", t.TempDir())
 	var calls atomic.Int32
 	old := runCommand
-	runCommand = func(context.Context, config, claudeSession) ([]byte, error) {
+	runCommand = func(context.Context, config, claudeSession, []string) ([]byte, error) {
 		calls.Add(1)
 		return []byte(reply), nil
 	}
@@ -40,11 +40,11 @@ func TestARecapIsWrittenOnceWhileTheConversationStandsStill(t *testing.T) {
 	calls := withClaude(t, okReply)
 	s := testSessionWith(t, "one\n")
 	cfg := withDefaults(config{})
-	r, ran, err := ensureRecap(context.Background(), cfg, s, false)
+	r, ran, err := ensureRecap(context.Background(), cfg, s, "Fix login", false)
 	if err != nil || !ran || r.Text != "Fixing the login bug. Next, run the tests." || r.CostUSD != 0.0166 {
 		t.Fatalf("%+v %v %v", r, ran, err)
 	}
-	if _, ran, _ := ensureRecap(context.Background(), cfg, s, false); ran || calls.Load() != 1 {
+	if _, ran, _ := ensureRecap(context.Background(), cfg, s, "Fix login", false); ran || calls.Load() != 1 {
 		t.Errorf("unchanged conversation recapped again: %d calls", calls.Load())
 	}
 	if c, current := (liveSource{cfg}).cached(s); c == nil || !current {
@@ -57,18 +57,18 @@ func TestARecapIsWrittenOnceWhileTheConversationStandsStill(t *testing.T) {
 	if _, current := (liveSource{cfg}).cached(s); current {
 		t.Error("a grown transcript's recap still counts as current")
 	}
-	if _, ran, _ := ensureRecap(context.Background(), cfg, s, false); !ran || calls.Load() != 2 {
+	if _, ran, _ := ensureRecap(context.Background(), cfg, s, "Fix login", false); !ran || calls.Load() != 2 {
 		t.Errorf("changed conversation not recapped: %d calls", calls.Load())
 	}
 	// Force: again, even though it's current.
-	if _, ran, _ := ensureRecap(context.Background(), cfg, s, true); !ran || calls.Load() != 3 {
+	if _, ran, _ := ensureRecap(context.Background(), cfg, s, "Fix login", true); !ran || calls.Load() != 3 {
 		t.Errorf("force didn't recap: %d calls", calls.Load())
 	}
 }
 
 func TestNothingSaidYetCostsNothing(t *testing.T) {
 	calls := withClaude(t, okReply)
-	_, _, err := ensureRecap(context.Background(), withDefaults(config{}), claudeSession{ID: testSession}, false)
+	_, _, err := ensureRecap(context.Background(), withDefaults(config{}), claudeSession{ID: testSession}, "Fix login", false)
 	if !errors.Is(err, errNothingYet) || calls.Load() != 0 {
 		t.Errorf("%v, %d calls", err, calls.Load())
 	}
@@ -81,7 +81,7 @@ func TestConcurrentRecapsOfOneSessionRunOnce(t *testing.T) {
 	done := make(chan error)
 	for range 4 {
 		go func() {
-			_, _, err := ensureRecap(context.Background(), cfg, s, false)
+			_, _, err := ensureRecap(context.Background(), cfg, s, "Fix login", false)
 			done <- err
 		}()
 	}

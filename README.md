@@ -144,7 +144,8 @@ agents: no Claude calls, safe to screenshot.
 | `pgup` / `pgdn`, `home` / `end` | page, first / last |
 | `enter`, click | go to that agent and close |
 | `tab` | reply to that agent: type, then `enter` to send, `esc` to drop it; `alt+enter` or `ctrl+j` for a new line |
-| `ctrl+r` | write that agent's recap again, now |
+| `ctrl+r` | rename that agent to the title suggested under its own; with none suggested, ask for one |
+| `ctrl+x` | ignore the suggested title: it isn't offered again |
 | `←` / `→` | the stage before / after, round the ends; a click on a tab shows it |
 | `esc` | clear the filter, then back to *All*, then close |
 
@@ -154,6 +155,33 @@ underlines, and a click presses it.
 A recap written before the agent carried on says how old it is (*recap from
 20m ago*) and is drawn dimmer until it's rewritten, which opening the popup
 does straight away.
+
+## Better titles
+
+An agent whose title is poor gets a better one suggested with its recap, on
+the line under the title, with *Rename · Ignore* after it:
+
+![Two agents with a better title suggested under their own, one being renamed once it's done working, and two already renamed, their ticket's key first](docs/images/titles.png)
+
+A title is poor when there isn't one (*Claude Code*), when it's a slug (what
+`/rename` makes up: `fix-channelless-assignment-notify`), or when it leaves
+out the ticket its branch is for (`…-act-1921-…`). The suggestion comes from
+the same fork of the conversation as the recap, so it knows the work and its
+ticket; it's asked for once per session and kept from recap to recap.
+
+*Rename* (a click, or `ctrl+r`) types `/rename` and the title into the
+agent, so it's Claude's own name for the session: in the terminal's title,
+herdr's sidebar and `claude --resume`. The row says *Renaming to …* until the
+agent's title shows it. An agent that's working or asking you something is
+renamed once it's done, whether or not the popup is still open. *Ignore* (a click, or `ctrl+x`) drops the suggestion
+for good.
+
+On a row with nothing suggested, `ctrl+r` asks for a title there and then,
+for you to take or ignore. A long-idle agent's conversation is no longer in
+the prompt cache, so that costs several times what it does alongside a recap.
+
+A rename doesn't put a recap out of date: only something said in the
+conversation does.
 
 ## When recaps are written
 

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.0 - 2026-10-10
+
+- **Better titles, suggested with the recap.** An agent with no title, a slug
+  for one (`fix-channelless-assignment-notify`) or one that leaves out its
+  branch's ticket has a better one on the line under it, such as *ACT-1921
+  Activation Email for New Users*, followed by *Rename · Ignore*. *Rename*
+  (a click, or `ctrl+r`) types `/rename` into the agent, once it's between
+  turns, and the row says *Renaming to …* until its title shows it. *Ignore*
+  (a click, or `ctrl+x`) drops the suggestion for good. It's asked for once
+  per session, at the same time as the recap.
+- **`ctrl+r` renames; it no longer writes the recap again.** Out-of-date
+  recaps are rewritten on opening the popup as before. With no title
+  suggested, `ctrl+r` asks for one.
+- A rename asked of an agent that's working or waiting on you is kept, and
+  given when it's next between turns, with the popup open or not.
+- **A rename doesn't put a recap out of date.** Nor does anything else Claude
+  writes to a transcript that isn't conversation: only an agent's message or
+  one of yours does.
+
 ## 0.4.2 - 2026-10-10
 
 - **Idle is said only of the Idle stage.** An idle agent whose PR puts it in

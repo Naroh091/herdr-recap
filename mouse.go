@@ -15,7 +15,7 @@ func (m model) renderFooter(hs []hint) string {
 }
 
 // handleMouse: hovering highlights, one click goes to the agent, the wheel
-// scrolls. Footer hints are buttons.
+// scrolls. Footer hints are buttons, and so are a suggested title's.
 func (m model) handleMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 	m.mouseX, m.mouseY = ev.X, ev.Y
 	if ev.Action == tea.MouseActionMotion {
@@ -62,8 +62,18 @@ func (m model) handleMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	// A click in the list while replying would leave, losing the reply.
-	if i, ok := m.entryAt(ev.Y); ok && !m.replying {
+	if i, row, ok := m.entryLineAt(ev.Y); ok && !m.replying {
 		m.cursor, m.flash = i, ""
+		// The buttons after a suggested title.
+		if e := m.selected(); row == 1 && e.renaming == "" && suggestion(e) != "" {
+			_, rename, ignore := m.suggestionLine(e)
+			switch {
+			case ev.X >= rename[0]-1 && ev.X <= rename[1]:
+				return m.rename()
+			case ev.X > ignore[0]-2 && ev.X <= ignore[1]:
+				return m.ignore()
+			}
+		}
 		return m.activate()
 	}
 	return m, nil

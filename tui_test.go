@@ -107,7 +107,7 @@ func TestTheViewShowsStatusTitleAndRecap(t *testing.T) {
 		"opus 5.5 · acceptEdits",
 		"● Flaky checkout e2e test", "✓ Release notes for 2.4",
 		"scratch", "Nothing to recap yet.", "Recaps are for Claude agents.",
-		"enter go to agent   tab reply   ^r recap again   ←→ stage   esc close", // pills: a cell either side, one between
+		"enter go to agent   tab reply   ^r suggest title   ←→ stage   esc close", // pills: a cell either side, one between
 	} {
 		if !strings.Contains(v, want) {
 			t.Errorf("view lacks %q:\n%s", want, v)
@@ -234,40 +234,243 @@ func TestTheDemoGoesNowhere(t *testing.T) {
 	}
 }
 
-// countingSource counts the recaps asked for.
-type countingSource struct {
+// renameSource records what's typed into agents and what's settled, and has
+// the agent take a /rename as Claude would, unless it's held back.
+type renameSource struct {
 	*demoSource
-	mu     sync.Mutex
-	forced int
+	mu    sync.Mutex
+	sent  []string
+	done  []string // sessions whose suggestion was settled
+	asked int
+	hold  bool // the agent's title doesn't change
 }
 
-func (c *countingSource) recap(ctx context.Context, s claudeSession, force bool) (recap, error) {
-	c.mu.Lock()
-	if force {
-		c.forced++
+func (r *renameSource) give(pane string, s claudeSession) error {
+	c, _ := r.cached(s)
+	r.mu.Lock()
+	r.sent = append(r.sent, pane+": /rename "+c.Title)
+	hold := r.hold
+	r.mu.Unlock()
+	if hold {
+		return nil
 	}
-	c.mu.Unlock()
-	return c.demoSource.recap(ctx, s, force)
+	return r.demoSource.give(pane, s)
 }
 
-func TestCtrlRRecapsTheSelectedAgentAgain(t *testing.T) {
+func (r *renameSource) settled(s claudeSession) error {
+	r.mu.Lock()
+	r.done = append(r.done, s.ID)
+	r.mu.Unlock()
+	return r.demoSource.settled(s)
+}
+
+func (r *renameSource) suggest(ctx context.Context, s claudeSession, title string) (recap, error) {
+	r.mu.Lock()
+	r.asked++
+	r.mu.Unlock()
+	return r.demoSource.suggest(ctx, s, title)
+}
+
+func renameModel(t *testing.T) (model, *renameSource) {
+	t.Helper()
 	d := newDemoSource()
 	d.delay = 0
-	src := &countingSource{demoSource: d}
+	src := &renameSource{demoSource: d}
 	m := newModel(context.Background(), src)
 	m.width, m.height = 100, 40
+	m.now = func() time.Time { return d.started }
 	m = settle(t, m, m.loadAgents())
+	return selectPane(m, "w1:p4"), src // the one with a slug for a title
+}
+
+// selectPane moves the selection to a pane's row, scrolled into view.
+func selectPane(m model, pane string) model {
+	for i, p := range m.order {
+		if p == pane {
+			m.cursor = i
+		}
+	}
+	m.scrollTo()
+	return m
+}
+
+func TestAPoorTitleHasABetterOneUnderIt(t *testing.T) {
+	m, _ := renameModel(t)
+	v := ansi.Strip(m.View())
+	if !strings.Contains(v, "✓ search-pagination") || !strings.Contains(v, "→ WEB-431 Paginate the Search Results  Rename · Ignore") {
+		t.Errorf("no suggestion under the poor title:\n%s", v)
+	}
+	if strings.Count(v, "Rename · Ignore") != 1 {
+		t.Error("a good title has a suggestion under it")
+	}
+	if !strings.Contains(v, "^r rename   ^x ignore") {
+		t.Error("the footer doesn't offer the rename")
+	}
+	// The suggestion is found by the filter: a ticket's key, say.
+	if got := paneOrder(typeText(m, "web-431")); got != "w1:p4" {
+		t.Errorf("filtered to %q", got)
+	}
+}
+
+func TestCtrlRGivesTheAgentItsSuggestedTitle(t *testing.T) {
+	m, src := renameModel(t)
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
 	m = next.(model)
-	if !m.entries[m.order[0]].recapping {
-		t.Error("not shown as recapping")
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "Renaming to WEB-431 Paginate the Search Results.") || strings.Contains(v, "Rename · Ignore") {
+		t.Errorf("not shown as being renamed:\n%s", v)
 	}
 	m = settle(t, m, cmd)
-	if src.forced != 1 || m.entries[m.order[0]].recapping {
-		t.Errorf("forced %d", src.forced)
+	if len(src.sent) != 1 || src.sent[0] != "w1:p4: /rename WEB-431 Paginate the Search Results" {
+		t.Fatalf("typed %q", src.sent)
 	}
-	// Nothing to recap: says so rather than asking Claude.
-	m.cursor = 3 // the empty conversation
+	// Its title says so on the next look: the row is as any other.
+	m = settle(t, m, m.loadAgents())
+	e := m.entries["w1:p4"]
+	if e.renaming != "" || titled(e) || title(e.agent) != "WEB-431 Paginate the Search Results" {
+		t.Errorf("renaming %q, title %q", e.renaming, title(e.agent))
+	}
+	if len(src.done) != 1 {
+		t.Errorf("settled %v", src.done)
+	}
+}
+
+func TestABusyAgentIsRenamedWhenItsDone(t *testing.T) {
+	m, src := renameModel(t)
+	e := m.entries["w1:p4"]
+	e.agent.Status = "working"
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	m = settle(t, next.(model), cmd)
+	if len(src.sent) != 0 || e.renaming == "" {
+		t.Fatalf("typed %q into an agent at work, renaming %q", src.sent, e.renaming)
+	}
+	// The demo's agent is idle: the next look finds it free, and it's sent once.
+	src.hold = true
+	m = settle(t, m, m.loadAgents())
+	m = settle(t, m, m.loadAgents())
+	if len(src.sent) != 1 || e.renaming == "" {
+		t.Fatalf("typed %q, renaming %q", src.sent, e.renaming)
+	}
+	// Sent, and a while later still not in its title: the row stops saying so.
+	sent := m.now()
+	m.now = func() time.Time { return sent.Add(renameWait + time.Second) }
+	m = settle(t, m, m.loadAgents())
+	if e.renaming != "" || titled(e) {
+		t.Errorf("still renaming %q", e.renaming)
+	}
+}
+
+func TestARenameOutlivesThePopup(t *testing.T) {
+	m, src := renameModel(t)
+	m.entries["w1:p4"].agent.Status = "working"
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	settle(t, next.(model), cmd)
+	// Closed and opened again while the agent is still at work: the row
+	// says it's being renamed, not that it could be.
+	m = newModel(context.Background(), src)
+	m.width, m.height = 100, 40
+	m.now = func() time.Time { return src.started }
+	src.hold = true
+	m = selectPane(settle(t, m, m.loadAgents()), "w1:p4")
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "Renaming to WEB-431 Paginate the Search Results.") || strings.Contains(v, "Rename · Ignore") {
+		t.Errorf("a rename asked for was forgotten:\n%s", v)
+	}
+	// The agent is free by the next look: it's typed in.
+	if settle(t, m, m.loadAgents()); len(src.sent) != 1 {
+		t.Errorf("typed %q", src.sent)
+	}
+}
+
+func TestIgnoreTurnsASuggestionDown(t *testing.T) {
+	m, src := renameModel(t)
+	before := m.entryHeight(m.cursor)
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
+	m = settle(t, next.(model), cmd)
+	if e := m.entries["w1:p4"]; titled(e) || m.entryHeight(m.cursor) != before-1 {
+		t.Error("the suggestion is still there")
+	}
+	if len(src.sent) != 0 || len(src.done) != 1 {
+		t.Errorf("typed %q, settled %v", src.sent, src.done)
+	}
+	// A recap that was being written meanwhile, or read before the note of
+	// it landed, doesn't bring it back.
+	e := m.entries["w1:p4"]
+	stale := recap{Session: e.session.ID, Text: "Later.", Title: "WEB-431 Paginate the Search Results"}
+	next, _ = m.Update(recapMsg{pane: "w1:p4", session: e.session.ID, recap: stale})
+	next, _ = next.(model).Update(sessionMsg{pane: "w1:p4", seq: e.agent.StateChangeSeq, session: *e.session, cached: &stale, current: true})
+	if m = next.(model); titled(m.entries["w1:p4"]) {
+		t.Error("an older recap brought the suggestion back")
+	}
+	// Turned down for good: it's not back on the next open.
+	if r, _ := src.cached(*m.entries["w1:p4"].session); r == nil || !r.Settled {
+		t.Errorf("%+v", r)
+	}
+}
+
+func TestTheButtonsAfterASuggestionAreClickable(t *testing.T) {
+	for _, c := range []struct {
+		button  string
+		sent    int
+		settled int
+	}{{"Rename", 1, 1}, {"Ignore", 0, 1}} {
+		m, src := renameModel(t)
+		lines := strings.Split(ansi.Strip(m.View()), "\n")
+		y, x := -1, -1
+		for i, l := range lines {
+			if j := strings.Index(l, c.button+" "); strings.Contains(l, "→ WEB-431") && j >= 0 {
+				y, x = i, ansi.StringWidth(l[:j])
+			}
+			if j := strings.Index(l, "· "+c.button); strings.Contains(l, "→ WEB-431") && j >= 0 {
+				y, x = i, ansi.StringWidth(l[:j])+2
+			}
+		}
+		if y < 0 {
+			t.Fatalf("%s isn't on screen", c.button)
+		}
+		next, cmd := m.Update(tea.MouseMsg{X: x + 1, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+		m = settle(t, next.(model), cmd)
+		m = settle(t, m, m.loadAgents())
+		if len(src.sent) != c.sent || len(src.done) != c.settled {
+			t.Errorf("%s: typed %q, settled %v", c.button, src.sent, src.done)
+		}
+	}
+	// Elsewhere on that line goes to the agent, as the rest of the row does.
+	m, src := renameModel(t)
+	y := 0
+	for i, l := range strings.Split(ansi.Strip(m.View()), "\n") {
+		if strings.Contains(l, "→ WEB-431") {
+			y = i
+		}
+	}
+	_, cmd := m.Update(tea.MouseMsg{X: 8, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	if msg, ok := cmd().(focusedMsg); !ok || !errors.Is(msg.err, errDemo) || len(src.sent) != 0 {
+		t.Errorf("a click on the suggestion itself: %v, typed %q", cmd(), src.sent)
+	}
+}
+
+func TestCtrlRAsksForATitleWhenNoneIsSuggested(t *testing.T) {
+	m, src := renameModel(t)
+	m = selectPane(m, "w1:p3")
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	m = next.(model)
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "Finding a title.") {
+		t.Errorf("not shown as finding one:\n%s", v)
+	}
+	m = settle(t, m, cmd)
+	if v := ansi.Strip(m.View()); src.asked != 1 || !strings.Contains(v, "→ WEB-512 Fix the Flaky Checkout Test  Rename · Ignore") {
+		t.Errorf("asked %d:\n%s", src.asked, v)
+	}
+	if len(src.sent) != 0 {
+		t.Errorf("renamed without being asked: %q", src.sent)
+	}
+	// One that would keep its title says so, and nothing is offered.
+	m = selectPane(m, "w3:p2")
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	m = settle(t, next.(model), cmd)
+	if e := m.entries["w3:p2"]; titled(e) || !strings.Contains(m.flash, "would keep the title it has") {
+		t.Errorf("flash %q", m.flash)
+	}
+	// Nothing said yet: nothing to go by.
+	m = selectPane(m, "w3:p4")
 	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
 	if cmd != nil || next.(model).flash != "Nothing to recap yet." {
 		t.Errorf("flash %q", next.(model).flash)
