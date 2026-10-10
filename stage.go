@@ -10,29 +10,29 @@ import (
 // stage is where an agent's work has got to, which the list is grouped by:
 // its status while that says something (it's asking, it finished a turn,
 // it's at work), and once it's idle, its pull request (herdr-github's pr_*
-// tokens). In list order.
+// tokens). In list order: whose move it is, yours first.
 type stage int
 
 const (
-	stageNeedsYou   stage = iota // blocked on a question or an approval
-	stageFinished                // finished a turn you haven't looked at
-	stageFixing                  // idle, its PR failing, in conflict or sent back
-	stageWorking                 // at work
-	stageReview                  // idle, its PR open and nothing wrong with it
-	stageInProgress              // idle, with no PR out for review
-	stageMerged                  // idle, its PR merged or closed and nothing new since
+	stageNeedsYou stage = iota // blocked on a question or an approval
+	stageDone                  // finished a turn you haven't looked at
+	stageFixing                // idle, its PR failing, in conflict or sent back
+	stageIdle                  // idle, with no PR out for review: yours to set going
+	stageWorking               // at work
+	stageReview                // idle, its PR open and nothing wrong with it: someone else's
+	stageMerged                // idle, its PR merged or closed and nothing new since
 )
 
 // stageOf derives an agent's stage. A status that says something wins over
 // the PR: an agent started on the next thing after a merge is at work, not
 // merged. So does new work in its worktree, between turns. (Its next branch
-// has no PR, so herdr-github clears the tokens and it's in progress anyway.)
+// has no PR, so herdr-github clears the tokens and it's idle anyway.)
 func stageOf(e *entry) stage {
 	switch e.agent.Status {
 	case "blocked":
 		return stageNeedsYou
 	case "done":
-		return stageFinished
+		return stageDone
 	case "working":
 		return stageWorking
 	}
@@ -40,7 +40,7 @@ func stageOf(e *entry) stage {
 	switch t["pr_state"] {
 	case "merged", "closed":
 		if e.changes.Files > 0 || e.changes.Ahead > 0 {
-			return stageInProgress
+			return stageIdle
 		}
 		return stageMerged
 	case "open", "draft":
@@ -52,7 +52,7 @@ func stageOf(e *entry) stage {
 			return stageReview
 		}
 	}
-	return stageInProgress
+	return stageIdle
 }
 
 // stageAll is the tab that lists every stage, grouped under headings.
@@ -62,8 +62,8 @@ func (s stage) label() string {
 	switch s {
 	case stageNeedsYou:
 		return "Needs you"
-	case stageFinished:
-		return "Finished"
+	case stageDone:
+		return "Done"
 	case stageFixing:
 		return "Needs fixing"
 	case stageWorking:
@@ -73,7 +73,7 @@ func (s stage) label() string {
 	case stageMerged:
 		return "Merged"
 	}
-	return "In progress"
+	return "Idle"
 }
 
 // short is the label for a popup too narrow for the tabs in full.
@@ -83,7 +83,7 @@ func (s stage) short() string {
 		return "All"
 	case stageNeedsYou:
 		return "You"
-	case stageFinished:
+	case stageDone:
 		return "Done"
 	case stageFixing:
 		return "Fix"
@@ -94,14 +94,14 @@ func (s stage) short() string {
 	case stageMerged:
 		return "Merged"
 	}
-	return "WIP"
+	return "Idle"
 }
 
 func (s stage) style() lipgloss.Style {
 	switch s {
 	case stageNeedsYou:
 		return styleBlocked
-	case stageFinished:
+	case stageDone:
 		return styleDone
 	case stageFixing:
 		return styleErr

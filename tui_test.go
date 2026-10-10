@@ -64,9 +64,9 @@ func paneOrder(m model) string { return strings.Join(m.order, " ") }
 
 func TestWhatNeedsYouComesFirst(t *testing.T) {
 	m, _ := demoModel(t)
-	// blocked, done, working (two, in sidebar order: storefront, billing),
-	// then the idle ones: in review, and in progress
-	if got := paneOrder(m); got != "w2:p1 w1:p3 w1:p1 w2:p3 w1:p4 w3:p2 w3:p4" {
+	// blocked, done, the idle ones with no PR out, working (two, in sidebar
+	// order: storefront, billing), then the one in review
+	if got := paneOrder(m); got != "w2:p1 w1:p3 w3:p2 w3:p4 w1:p1 w2:p3 w1:p4" {
 		t.Errorf("order %s", got)
 	}
 }
@@ -97,8 +97,8 @@ func TestTheViewShowsStatusTitleAndRecap(t *testing.T) {
 	m.height = 50 // room for every agent and its stage's heading
 	v := ansi.Strip(m.View())
 	for _, want := range []string{
-		"Recap   All 7  Needs you 1  Finished 1  Working 2  In review 1  In progress 2",
-		"Needs you 1", "Finished 1", "Working 2", "In review 1", "In progress 2",
+		"Recap   All 7  Needs you 1  Done 1  Idle 2  Working 2  In review 1",
+		"Needs you 1", "Done 1", "Idle 2", "Working 2", "In review 1",
 		"◉ Move billing webhooks to v2 events", "billing · waiting 2m",
 		"billing/webhooks-v2 · 6 files +214 −58 ↑2 · 4/5 tasks · #412",
 		"? Run npm run migrate -- --env staging",
@@ -120,7 +120,7 @@ func TestTheViewShowsStatusTitleAndRecap(t *testing.T) {
 
 func TestTheCursorFollowsItsAgentWhenTheOrderChanges(t *testing.T) {
 	m, _ := demoModel(t)
-	m.cursor = 2 // w1:p1, working
+	m.cursor = 4 // w1:p1, working
 	agents, ws, _ := m.src.agents()
 	for i := range agents {
 		if agents[i].PaneID == "w1:p1" {
@@ -267,7 +267,7 @@ func TestCtrlRRecapsTheSelectedAgentAgain(t *testing.T) {
 		t.Errorf("forced %d", src.forced)
 	}
 	// Nothing to recap: says so rather than asking Claude.
-	m.cursor = len(m.order) - 1 // the empty conversation
+	m.cursor = 3 // the empty conversation
 	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
 	if cmd != nil || next.(model).flash != "Nothing to recap yet." {
 		t.Errorf("flash %q", next.(model).flash)

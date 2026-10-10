@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1 - 2026-10-10
+
+- **Two stages renamed.** *Finished* is *Done*, herdr's own word for it and
+  the one on the row; *In progress* is *Idle*: nothing is in progress there,
+  it's waiting for you to set it going.
+- **The stages are in the order of whose move it is.** *Needs you*, *Done*,
+  *Needs fixing* and *Idle* are yours; then *Working*, *In review* and
+  *Merged*. *Idle* was after *In review*.
+
 ## 0.4.0 - 2026-10-10
 
 - **The list is grouped by stage.** Under a heading with a count each: *Needs

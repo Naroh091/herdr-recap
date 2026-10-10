@@ -297,7 +297,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if e := m.entries[msg.pane]; e != nil && e.branchAt == msg.at {
 			was := stageOf(e)
 			e.changes = msg.changes
-			// New work in a merged PR's worktree puts it back in progress.
+			// New work in a merged PR's worktree makes it idle, not merged.
 			if stageOf(e) != was {
 				m.resort(m.selectedPane())
 			}
