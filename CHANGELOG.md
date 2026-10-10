@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- **The list is grouped by stage.** Under a heading with a count each: *Needs
+  you*, *Finished*, *Needs fixing*, *Working*, *In review*, *In progress*,
+  *Merged*. The first, second and fourth are the agent's status, as before;
+  an idle agent is placed by its pull request (herdr-github's tokens), so the
+  one whose PR is failing is above the ones waiting on a review, and the
+  merged ones are at the bottom. An agent started on something new after a
+  merge is back in *Working*, or *In progress* between turns. A stage's name
+  filters the list.
+- **The stages are tabs along the top**, each in its colour with its count,
+  in place of the counts by status. `←` / `→` or a click shows one stage
+  alone; `esc` goes back to *All* before it closes.
+
 ## 0.3.0 - 2026-10-06
 
 - **One look, shared with herdr-github and herdr-linear.** A title, a

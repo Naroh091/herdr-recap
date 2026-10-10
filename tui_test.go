@@ -64,8 +64,9 @@ func paneOrder(m model) string { return strings.Join(m.order, " ") }
 
 func TestWhatNeedsYouComesFirst(t *testing.T) {
 	m, _ := demoModel(t)
-	// blocked, done, working (two, in sidebar order: storefront, billing), idle
-	if got := paneOrder(m); got != "w2:p1 w1:p3 w1:p1 w2:p3 w3:p2 w3:p4" {
+	// blocked, done, working (two, in sidebar order: storefront, billing),
+	// then the idle ones: in review, and in progress
+	if got := paneOrder(m); got != "w2:p1 w1:p3 w1:p1 w2:p3 w1:p4 w3:p2 w3:p4" {
 		t.Errorf("order %s", got)
 	}
 }
@@ -93,9 +94,11 @@ func TestRowsSayWhyThereIsNoRecap(t *testing.T) {
 
 func TestTheViewShowsStatusTitleAndRecap(t *testing.T) {
 	m, _ := demoModel(t)
+	m.height = 50 // room for every agent and its stage's heading
 	v := ansi.Strip(m.View())
 	for _, want := range []string{
-		"Recap", "1 needs you", "1 done", "2 working", "2 idle",
+		"Recap   All 7  Needs you 1  Finished 1  Working 2  In review 1  In progress 2",
+		"Needs you 1", "Finished 1", "Working 2", "In review 1", "In progress 2",
 		"◉ Move billing webhooks to v2 events", "billing · waiting 2m",
 		"billing/webhooks-v2 · 6 files +214 −58 ↑2 · 4/5 tasks · #412",
 		"? Run npm run migrate -- --env staging",
@@ -104,7 +107,7 @@ func TestTheViewShowsStatusTitleAndRecap(t *testing.T) {
 		"opus 5.5 · acceptEdits",
 		"● Flaky checkout e2e test", "✓ Release notes for 2.4",
 		"scratch", "Nothing to recap yet.", "Recaps are for Claude agents.",
-		"enter go to agent   tab reply   ^r recap again   esc close", // pills: a cell either side, one between
+		"enter go to agent   tab reply   ^r recap again   ←→ stage   esc close", // pills: a cell either side, one between
 	} {
 		if !strings.Contains(v, want) {
 			t.Errorf("view lacks %q:\n%s", want, v)
@@ -189,9 +192,14 @@ func TestAFailedJumpSaysSoAndStaysOpen(t *testing.T) {
 
 func TestClickingAnAgentGoesToIt(t *testing.T) {
 	m, src := focusModel(t)
-	// The first entry is its title and recap from listTop, then a blank:
-	// the second entry's title follows.
-	y := listTop + m.entryHeight(0)
+	// The first entry is its stage's heading, its title and recap from
+	// listTop, then a blank: the second entry's heading and title follow.
+	for y := listTop; y < listTop+m.headingHeight(0); y++ {
+		if _, ok := m.entryAt(y); ok {
+			t.Error("a stage's heading is an entry")
+		}
+	}
+	y := listTop + m.headingHeight(0) + m.entryHeight(0) + m.headingHeight(1)
 	if i, ok := m.entryAt(y); !ok || i != 1 {
 		t.Fatalf("line %d is entry %d, %v", y, i, ok)
 	}

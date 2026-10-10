@@ -35,7 +35,7 @@ func TestWriteDemoScreens(t *testing.T) {
 	useTheme(&catppuccin)
 	t.Cleanup(func() { useTheme(nil) })
 	m, _ := demoModel(t)
-	m.width, m.height = 100, 38
+	m.width, m.height = 100, 50
 
 	// Coming back: what needs you first, what each agent got to.
 	save("agents", m)
@@ -49,15 +49,6 @@ func TestWriteDemoScreens(t *testing.T) {
 }
 
 func press(m model, k string) model {
-	var msg tea.KeyMsg
-	switch k {
-	case "down":
-		msg = tea.KeyMsg{Type: tea.KeyDown}
-	case "tab":
-		msg = tea.KeyMsg{Type: tea.KeyTab}
-	default:
-		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
-	}
-	next, _ := m.Update(msg)
+	next, _ := m.Update(keyMsg(k))
 	return next.(model)
 }

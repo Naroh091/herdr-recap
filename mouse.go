@@ -50,6 +50,17 @@ func (m model) handleMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	// A stage's tab. Not while replying: the reply is to an agent listed now.
+	if ev.Y == 0 && !m.replying {
+		_, tabs := m.tabBar()
+		for _, t := range tabs {
+			if ev.X >= t.x0 && ev.X < t.x1 {
+				m.flash = ""
+				m.showStage(t.stage)
+			}
+		}
+		return m, nil
+	}
 	// A click in the list while replying would leave, losing the reply.
 	if i, ok := m.entryAt(ev.Y); ok && !m.replying {
 		m.cursor, m.flash = i, ""

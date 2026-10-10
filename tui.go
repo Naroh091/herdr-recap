@@ -75,22 +75,6 @@ const maxRecapping = 6
 // words, which is two or three lines in a popup.
 const recapLines = 3
 
-// statusRank orders the list: what needs you first, then what finished, then
-// what's still going, then the rest.
-func statusRank(status string) int {
-	switch status {
-	case "blocked":
-		return 0
-	case "done":
-		return 1
-	case "working":
-		return 2
-	case "idle":
-		return 3
-	}
-	return 4
-}
-
 // ── model ─────────────────────────────────────────────────────────────────────
 
 // entry is one agent's row.
@@ -117,6 +101,7 @@ type model struct {
 	width      int
 	height     int
 	entries    map[string]*entry
+	show       stage    // the tab: one stage's agents, or stageAll
 	order      []string // pane IDs, as listed: the ones the filter matches
 	filter     textinput.Model
 	workspaces []workspaceInfo
@@ -164,12 +149,13 @@ func newModel(ctx context.Context, src source) model {
 	// Typing filters the list. Its text lines up with the titles.
 	fi := textinput.New()
 	fi.Prompt = " › "
-	fi.Placeholder = "filter"
+	fi.Placeholder = "Type to filter… ← → to change tabs"
 	fi.PromptStyle, fi.PlaceholderStyle = styleDim, styleDim
 	fi.Focus()
 	return model{
 		ctx: ctx, src: src, entries: map[string]*entry{}, spin: sp, filter: fi,
 		sem: make(chan struct{}, maxRecapping), now: time.Now, mouseX: -1, mouseY: -1, replyText: ti,
+		show: stageAll,
 	}
 }
 
@@ -309,7 +295,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case changesMsg:
 		if e := m.entries[msg.pane]; e != nil && e.branchAt == msg.at {
+			was := stageOf(e)
 			e.changes = msg.changes
+			// New work in a merged PR's worktree puts it back in progress.
+			if stageOf(e) != was {
+				m.resort(m.selectedPane())
+			}
 		}
 		return m, nil
 
@@ -384,6 +375,12 @@ func (m *model) updateAgents(agents []agentInfo, workspaces []workspaceInfo) tea
 			delete(m.entries, pane)
 		}
 	}
+	m.resort(selected)
+	return tea.Batch(cmds...)
+}
+
+// resort orders the list again, keeping the selection on the agent it was on.
+func (m *model) resort(selected string) {
 	m.sortEntries()
 	m.cursor = 0
 	for i, p := range m.order {
@@ -392,7 +389,6 @@ func (m *model) updateAgents(agents []agentInfo, workspaces []workspaceInfo) tea
 		}
 	}
 	m.scrollTo()
-	return tea.Batch(cmds...)
 }
 
 func (m *model) startResolve(e *entry) tea.Cmd {
@@ -423,16 +419,17 @@ func (m *model) sortEntries() {
 	}
 	m.order = m.order[:0]
 	for p, e := range m.entries {
-		if m.matches(e) {
+		staged := m.show == stageAll || stageOf(e) == m.show || (m.replying && p == m.replyTo)
+		if staged && m.matches(e) {
 			m.order = append(m.order, p)
 		}
 	}
 	sort.Slice(m.order, func(i, j int) bool {
 		a, b := m.entries[m.order[i]].agent, m.entries[m.order[j]].agent
-		if ra, rb := statusRank(a.Status), statusRank(b.Status); ra != rb {
+		if ra, rb := stageOf(m.entries[m.order[i]]), stageOf(m.entries[m.order[j]]); ra != rb {
 			return ra < rb
 		}
-		// Within a status, what has waited longest first.
+		// Within a stage, what has waited longest first.
 		sa, sb := m.inStateSince(m.entries[m.order[i]]), m.inStateSince(m.entries[m.order[j]])
 		if !sa.Equal(sb) && !sa.IsZero() && !sb.IsZero() {
 			return sa.Before(sb)
@@ -453,15 +450,15 @@ func (m *model) sortEntries() {
 }
 
 // matches says whether every word of the filter is somewhere in what the
-// agent's row shows: its title, status, space, branch, what it's waiting
-// for, its recap or its tokens. The agent being replied to stays listed
+// agent's row shows: its title, status, stage, space, branch, what it's
+// waiting for, its recap or its tokens. The agent being replied to stays listed
 // whatever the filter says.
 func (m model) matches(e *entry) bool {
 	words := strings.Fields(strings.ToLower(m.filter.Value()))
 	if len(words) == 0 || (m.replying && e.agent.PaneID == m.replyTo) {
 		return true
 	}
-	hay := []string{title(e.agent), e.agent.Agent, e.agent.Status, e.branch}
+	hay := []string{title(e.agent), e.agent.Agent, e.agent.Status, stageOf(e).label(), e.branch}
 	if e.agent.Status == "blocked" {
 		// As the header and the row put it.
 		hay = append(hay, "needs you", "waiting")
@@ -540,9 +537,19 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refilter()
 			return m, nil
 		}
+		if m.show != stageAll {
+			m.showStage(stageAll)
+			return m, nil
+		}
 		return m, tea.Quit
 	case "tab":
 		return m.startReply()
+	case "left":
+		m.stepStage(-1)
+		return m, nil
+	case "right":
+		m.stepStage(1)
+		return m, nil
 	case "up", "ctrl+p", "ctrl+k":
 		m.move(-1)
 		return m, nil
@@ -674,11 +681,12 @@ func (m *model) move(delta int) {
 
 // ── layout ────────────────────────────────────────────────────────────────────
 
-// listTop is the first list line: under the header, the filter and a blank.
-const listTop = 3
+// listTop is the first list line: under the tabs, a blank, the filter and
+// another blank.
+const listTop = 4
 
 func (m model) listHeight() int {
-	// header + filter + blank above; status line + footer below, the footer
+	// tabs + blank + filter + blank above; status line + footer below, the footer
 	// on the popup's last line (mouse.go counts on that).
 	// A reply being typed takes the status line and more.
 	return max(3, m.height-listTop-2-max(0, m.replyLines()-1))
@@ -743,7 +751,7 @@ func unusualMode(mode string) bool { return mode != "" && mode != "default" }
 func (m model) visibleEntries() int {
 	n, used := 0, 0
 	for i := m.offset; i < len(m.order); i++ {
-		used += m.entryHeight(i)
+		used += m.headingHeight(i) + m.entryHeight(i)
 		if used > m.listHeight()+1 { // the last entry's trailing blank may not fit
 			break
 		}
@@ -759,7 +767,7 @@ func (m *model) scrollTo() {
 	for m.offset < m.cursor {
 		used := 0
 		for i := m.offset; i <= m.cursor; i++ {
-			used += m.entryHeight(i)
+			used += m.headingHeight(i) + m.entryHeight(i)
 		}
 		if used <= m.listHeight()+1 {
 			break
@@ -773,6 +781,7 @@ func (m *model) scrollTo() {
 func (m model) entryAt(y int) (int, bool) {
 	line := listTop
 	for i := m.offset; i < len(m.order); i++ {
+		line += m.headingHeight(i) // a stage's heading isn't an entry
 		h := m.entryHeight(i)
 		if y >= line && y < line+h-1 { // not its trailing blank
 			return i, true
@@ -851,12 +860,15 @@ func (m model) view() string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(m.viewHeader() + "\n" + m.filter.View() + "\n\n")
+	b.WriteString(m.viewHeader() + "\n\n" + m.filter.View() + "\n\n")
 	h := m.listHeight()
 	used := 0
 	switch {
 	case !m.loaded:
 		b.WriteString("  " + m.spin.View() + " Loading…\n")
+		used++
+	case len(m.order) == 0 && len(m.entries) > 0 && m.show != stageAll && m.filter.Value() == "":
+		b.WriteString(styleDim.Render("  No agents at this stage.") + "\n")
 		used++
 	case len(m.order) == 0 && len(m.entries) > 0:
 		b.WriteString(styleDim.Render("  Nothing matches.") + "\n")
@@ -866,6 +878,13 @@ func (m model) view() string {
 		used++
 	}
 	for i := m.offset; i < len(m.order) && used < h; i++ {
+		if m.headed(i) {
+			// With the blank under it, when there's room for both.
+			for _, l := range []string{m.viewHeading(m.stageAt(i)), ""}[:min(2, h-used)] {
+				b.WriteString(l + "\n")
+				used++
+			}
+		}
 		for _, l := range m.viewEntry(m.entries[m.order[i]], i == m.cursor) {
 			if used == h {
 				break
@@ -882,41 +901,15 @@ func (m model) view() string {
 	return b.String()
 }
 
-// viewHeader is the title, and how many agents are in each state.
+// viewHeader is the stages as tabs, and how many recaps are being written.
 func (m model) viewHeader() string {
-	counts := map[string]int{}
 	recapping := 0
 	for _, e := range m.entries {
-		counts[e.agent.Status]++
 		if e.recapping {
 			recapping++
 		}
 	}
-	var parts []string
-	for _, s := range []struct {
-		status, label string
-		style         lipgloss.Style
-	}{
-		{"blocked", "need you", styleBlocked}, {"done", "done", styleDone},
-		{"working", "working", styleWorking}, {"idle", "idle", styleIdle},
-	} {
-		if n := counts[s.status]; n > 0 {
-			label := s.label
-			if s.status == "blocked" && n == 1 {
-				label = "needs you"
-			}
-			if s.status == "blocked" {
-				// The one count that's a call on you wears a pill.
-				parts = append(parts, statePill(s.style, strconv.Itoa(n)+" "+label))
-				continue
-			}
-			parts = append(parts, s.style.Render(strconv.Itoa(n))+styleDim.Render(" "+label))
-		}
-	}
-	line := styleTabOn.Render(" Recap ")
-	if len(parts) > 0 {
-		line += "  " + strings.Join(parts, styleDim.Render(" · "))
-	}
+	line, _ := m.tabBar()
 	if recapping > 0 {
 		right := m.spin.View() + styleDim.Render(fmt.Sprintf(" recapping %d ", recapping))
 		if pad := m.width - lipgloss.Width(line) - lipgloss.Width(right); pad > 1 {
@@ -1214,11 +1207,14 @@ func (m model) footer() []hint {
 		return []hint{{"enter send", "enter", hintAct}, {"esc cancel", "esc", hintQuiet}}
 	}
 	esc := "esc close"
-	if m.filter.Value() != "" {
+	switch {
+	case m.filter.Value() != "":
 		esc = "esc clear"
+	case m.show != stageAll:
+		esc = "esc all"
 	}
 	// By kind, so the colours sit together: go, act, view, leave.
-	return []hint{{"enter go to agent", "enter", hintGo}, {"tab reply", "tab", hintAct}, {"^r recap again", "ctrl+r", hintView}, {esc, "esc", hintQuiet}}
+	return []hint{{"enter go to agent", "enter", hintGo}, {"tab reply", "tab", hintAct}, {"^r recap again", "ctrl+r", hintView}, {"←→ stage", "right", hintView}, {esc, "esc", hintQuiet}}
 }
 
 func runPicker(ctx context.Context, cfg config, demo bool) error {

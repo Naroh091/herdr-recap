@@ -70,6 +70,15 @@ var demoAgents = []demoAgent{
 		later:   "Adding dark mode to settings: tokens and form fields are done, and it's now fixing contrast in the billing table. Next, screenshots for review.",
 	},
 	{
+		agent: agentInfo{PaneID: "w1:p4", Cwd: "/demo/w1-p4", WorkspaceID: "w1", Agent: "claude", Status: "idle", Title: "Paginate the search results", StateChangeSeq: 5,
+			Tokens: map[string]string{"prs": "#431 ✓ approved", "pr_state": "open", "pr_checks": "✓", "pr_review": "approved"}},
+		session: "0b3c9a51-5d7e-4f7a-9c35-1a2b3c4d5e06", age: 3 * time.Hour, current: true,
+		meta: sessionMeta{Branch: "search-pagination", Model: "claude-sonnet-5-5",
+			LastPrompt: "open the PR and ask the search team for a review"},
+		active: -3 * time.Hour,
+		recap:  "Paginated the search results with a cursor instead of an offset, and opened the PR. Next, merge it once the search team has looked.",
+	},
+	{
 		agent:   agentInfo{PaneID: "w3:p2", Cwd: "/demo/w3-p2", WorkspaceID: "w3", Agent: "claude", Status: "idle", Title: "Release notes for 2.4", StateChangeSeq: 3},
 		changes: gitChanges{Ahead: 1},
 		session: "0b3c9a51-5d7e-4f7a-9c35-1a2b3c4d5e04", age: 2 * time.Hour, current: true,

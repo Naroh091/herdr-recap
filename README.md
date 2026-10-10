@@ -4,7 +4,7 @@ Where every agent got to, in one [herdr](https://herdr.dev) popup: what
 needs you, what's done, what each one was doing, and a line to answer it
 from without leaving the list.
 
-![The popup on the demo's agents: one waiting on an approval, one done, two working, two idle](docs/images/agents.png)
+![The popup on the demo's agents, grouped by stage under tabs: one that needs you, one finished, two working, one in review, two in progress](docs/images/agents.png)
 
 ## Why
 
@@ -32,9 +32,31 @@ what to look at first.
 Open it (`prefix+alt+r`) and read down. Each agent is a few lines:
 
 - **Status first, what needs you at the top.** herdr's own glyphs and colours:
-  `◉` needs you, `◔` working, `●` done, `✓` idle. Within a status, whatever
+  `◉` needs you, `◔` working, `●` done, `✓` idle. Within a stage, whatever
   has waited longest comes first, and the right side says for how long:
   *waiting 2m*, *done 12m*, *working 18m*.
+- **Grouped by where the work has got to.** Each group has a heading and a
+  count, in this order:
+
+  | Stage | Which agents |
+  | --- | --- |
+  | **Needs you** | stopped on a question or an approval |
+  | **Finished** | finished a turn you haven't looked at |
+  | **Needs fixing** | idle, its PR failing its checks, in conflict or with changes requested |
+  | **Working** | at work |
+  | **In review** | idle, its PR open with nothing wrong with it |
+  | **In progress** | idle, with no PR out for review (none yet, or a draft) |
+  | **Merged** | idle, its PR merged or closed and nothing new in its worktree |
+
+  What an agent is doing right now wins over its PR: start one on the next
+  thing after a merge and it's *Working*, and between turns *In progress*
+  once it has edited or committed something, or moved to a new branch. The
+  PR stages need [herdr-github](https://github.com/mrolafsson/herdr-github)'s
+  tokens; without it, idle agents are all *In progress*.
+- **The stages are tabs along the top.** *All*, then each stage that has
+  agents, in its colour with its count. `←` / `→` or a click shows one
+  stage's agents alone; `esc` goes back to *All*. A stage's name filters
+  too: type `merged` for the agents you could close.
 - **What it's waiting for.** An agent stopped on a question or an approval
   shows it in red: the question, or the command or edit it wants to run.
 - **Where it got to.** Claude Code's own recap of the session: the goal, the
@@ -121,7 +143,8 @@ agents: no Claude calls, safe to screenshot.
 | `enter`, click | go to that agent and close |
 | `tab` | reply to that agent: type, then `enter` to send, `esc` to drop it; `alt+enter` or `ctrl+j` for a new line |
 | `ctrl+r` | write that agent's recap again, now |
-| `esc` | clear the filter, then close |
+| `←` / `→` | the stage before / after, round the ends; a click on a tab shows it |
+| `esc` | clear the filter, then back to *All*, then close |
 
 The keys along the bottom are pills, and buttons: the one under the pointer
 underlines, and a click presses it.
