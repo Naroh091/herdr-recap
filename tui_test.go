@@ -85,8 +85,8 @@ func TestOutOfDateRecapsAreRewrittenOnOpen(t *testing.T) {
 
 func TestRowsSayWhyThereIsNoRecap(t *testing.T) {
 	m, _ := demoModel(t)
-	if e := m.entries["w2:p3"]; e.note != "Recaps aren't available for this agent." {
-		t.Errorf("codex: %q", e.note)
+	if e := m.entries["w2:p3"]; e.note != "" || e.recap == nil || !strings.Contains(e.recap.Text, "rate limiter") {
+		t.Errorf("codex: %q, %+v", e.note, e.recap)
 	}
 	if e := m.entries["w3:p4"]; e.note != "Nothing to recap yet." || e.recapping {
 		t.Errorf("an empty conversation: %q, recapping %v", e.note, e.recapping)
@@ -107,7 +107,7 @@ func TestTheViewShowsStatusTitleAndRecap(t *testing.T) {
 		"settings-dark-mode · 14 files +530 −121 · 3/7 tasks", "main · ↑1", "codex · #415",
 		"opus 5.5 · acceptEdits",
 		"● Flaky checkout e2e test", "✓ Release notes for 2.4",
-		"scratch", "Nothing to recap yet.", "Recaps aren't available for this agent.",
+		"scratch", "Nothing to recap yet.", "Adding a rate limiter to the public API",
 		"enter go to agent   tab reply   ^r suggest title   ←→ stage   esc close", // pills: a cell either side, one between
 	} {
 		if !strings.Contains(v, want) {
@@ -470,12 +470,13 @@ func TestCtrlRAsksForATitleWhenNoneIsSuggested(t *testing.T) {
 	if e := m.entries["w3:p2"]; titled(e) || !strings.Contains(m.flash, "would keep the title it has") {
 		t.Errorf("flash %q", m.flash)
 	}
-	// Another agent's: titles are asked of Claude's own conversations.
+	// A Codex agent is asked for one as a Claude agent is.
 	m = selectPane(m, "w2:p3")
 	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
-	if cmd != nil || next.(model).flash != "Recaps aren't available for this agent." {
-		t.Errorf("flash %q", next.(model).flash)
+	if m = next.(model); cmd == nil || !m.entries["w2:p3"].titling {
+		t.Errorf("codex wasn't asked for a title: flash %q", m.flash)
 	}
+	m = settle(t, m, cmd)
 	// Nothing said yet: nothing to go by.
 	m = selectPane(m, "w3:p4")
 	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})

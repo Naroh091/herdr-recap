@@ -98,6 +98,9 @@ var demoAgents = []demoAgent{
 	{
 		agent: agentInfo{PaneID: "w2:p3", Cwd: "/demo/w2-p3", WorkspaceID: "w2", Agent: "codex", Status: "working", Title: "Rate limiter for the public API", StateChangeSeq: 7,
 			Tokens: map[string]string{"pr": "#415"}},
+		// Codex recaps itself, as Claude does; its session says less about it.
+		session: "0b3c9a51-5d7e-4f7a-9c35-1a2b3c4d5e07", age: 6 * time.Minute, current: true,
+		recap: "Adding a rate limiter to the public API: the token bucket and its tests are in. Next, read each key's limits from config.",
 	},
 }
 
@@ -145,6 +148,9 @@ func (d *demoSource) session(_ context.Context, info agentInfo) (claudeSession, 
 		return claudeSession{}, errNotClaude
 	}
 	s := claudeSession{ID: a.session, Cwd: "/demo", Meta: a.meta}
+	if a.agent.Agent == "codex" {
+		s.Agent, s.Native = "codex", true
+	}
 	if s.Meta.Model != "" {
 		s.Meta.Active = d.started.Add(a.active)
 		s.Meta.PendingAt = s.Meta.Active
@@ -250,5 +256,6 @@ func (d *demoSource) settled(s claudeSession) error {
 	return nil
 }
 
-// capable: the demo's recaps are its Claude agents'.
-func (d *demoSource) capable(a agentInfo) bool { return a.Agent == "claude" }
+// capable: the demo's recaps are its Claude and Codex agents', as the
+// plugin's are unless config.json says otherwise.
+func (d *demoSource) capable(a agentInfo) bool { return a.Agent == "claude" || a.Agent == "codex" }

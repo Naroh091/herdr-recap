@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 - 2026-10-11
 
 Recaps for other agents. `agents` in `config.json` lists the ones recapped,
 `["claude", "codex"]` unless you say otherwise.
