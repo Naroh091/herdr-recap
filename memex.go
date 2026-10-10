@@ -136,16 +136,15 @@ func supportedAgent(agent string) bool {
 	return false
 }
 
-// recapCapable: the agent's conversation can be recapped. Claude's always;
-// another's when you've named it in agents. Codex's session is found from
-// its process; one read through Memex has to be known to herdr by its ID.
+// recapCapable: the agent's conversation can be recapped: it's one of the
+// agents config.json names (Claude and Codex, unless it says otherwise).
+// Claude's and Codex's sessions are found from their processes; one read
+// through Memex has to be known to herdr by its ID.
 func recapCapable(cfg config, a agentInfo) bool {
 	switch {
-	case a.Agent == "claude":
-		return true
 	case !slices.Contains(cfg.Agents, a.Agent):
 		return false
-	case a.Agent == "codex":
+	case a.Agent == "claude", a.Agent == "codex":
 		return true
 	}
 	return supportedAgent(a.Agent) && a.AgentSession.Kind == "id" && a.AgentSession.Value != ""

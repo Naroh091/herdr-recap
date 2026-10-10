@@ -139,16 +139,16 @@ func TestCodexArgsForkWithoutSavingOrWriting(t *testing.T) {
 	}
 }
 
-func TestOtherAgentsAreRecappedOnlyWhenNamed(t *testing.T) {
+func TestCodexIsRecappedWithoutBeingAskedFor(t *testing.T) {
 	codex := agentInfo{Agent: "codex", Status: "done"} // no session ID from herdr: found from its process
 	opencode := agentInfo{Agent: "opencode", Status: "done"}
-	if recapCapable(withDefaults(config{}), codex) {
-		t.Error("codex without being named")
+	if !recapCapable(withDefaults(config{}), codex) {
+		t.Error("codex isn't recapped by default")
 	}
-	named := withDefaults(config{Agents: []string{"codex", "opencode"}})
-	if !recapCapable(named, codex) {
-		t.Error("codex, named, isn't recapped")
+	if recapCapable(withDefaults(config{Agents: []string{"claude"}}), codex) {
+		t.Error("codex, left out of agents, is recapped")
 	}
+	named := withDefaults(config{Agents: []string{"claude", "codex", "opencode"}})
 	if recapCapable(named, opencode) {
 		t.Error("opencode without a session ID for Memex to find")
 	}

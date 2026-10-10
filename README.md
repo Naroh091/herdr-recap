@@ -190,11 +190,12 @@ conversation does.
 
 ## Other agents
 
-Recaps are Claude's until you ask for more. Name the agents you want in
-`config.json`:
+Claude and Codex agents are recapped, with nothing to set up. Both recap
+themselves, in a fork of their own conversation that is never saved.
+`agents` in `config.json` says otherwise: fewer, or more.
 
 ```json
-{ "agents": ["codex", "opencode"] }
+{ "agents": ["claude", "codex", "opencode"] }
 ```
 
 **Codex** recaps itself, as Claude does: `codex exec fork --ephemeral` forks
@@ -215,9 +216,10 @@ know its ID (its integration for that agent, `herdr integration install`); a
 row whose session Memex hasn't indexed yet says so, and is looked up again
 while the popup is open.
 
-Either way a recap is a request you pay for or that counts against a plan,
-which is why it's yours to turn on. An agent you haven't named says *Recaps
-aren't available for this agent.*
+OpenCode and Hermes are yours to add for that reason. A Codex recap, like a
+Claude one, is a request against your own plan or key for that agent:
+`"agents": ["claude"]` turns Codex's off. An agent that isn't in the list
+says *Recaps aren't available for this agent.*
 
 [Better titles](#better-titles) are for Claude and Codex agents: Codex is
 asked for one in a fork too, and renamed with its own `/rename`. Its
@@ -276,7 +278,7 @@ Optional: `config.json` in the plugin's config directory
 | --- | --- | --- |
 | `recap_after_seconds` | `180` | How long an agent waits on you, unlooked at, before its recap is written |
 | `claude` | the agent's own | Claude Code binary for native Claude recaps and the default non-Claude summarizer |
-| `agents` | none | The [other agents](#other-agents) to recap: any of `"codex"`, `"opencode"`, `"hermes"` |
+| `agents` | `["claude", "codex"]` | The agents to recap: any of `"claude"`, `"codex"`, `"opencode"`, `"hermes"` (see [Other agents](#other-agents)) |
 | `codex` | the agent's own | The Codex binary to run Codex recaps with |
 | `memex` | `"memex"` | Memex binary used to resolve and read OpenCode and Hermes sessions |
 | `transcript_max_chars` | `24000` | Maximum recent user/assistant transcript characters sent to the summarizer |
@@ -324,8 +326,8 @@ state in the state's colour, the checks and the review in theirs.
 
 Claude recaps are made by the same Claude Code, account and settings the agent
 uses, on its own conversation, so nothing goes anywhere it hadn't already.
-Other agents are recapped only if you name them in `agents`. Codex's are
-made by Codex, the same way. OpenCode's and Hermes's read a bounded page
+Codex recaps are made by Codex, the same way. OpenCode and Hermes are
+recapped only if you add them to `agents`. Those recaps read a bounded page
 through
 Memex and send only user/assistant text to the configured summarizer, as a
 JSON string in a JSON object the summarizer is told to treat as data, so a

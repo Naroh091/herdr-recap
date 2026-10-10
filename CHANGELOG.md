@@ -2,14 +2,18 @@
 
 ## Unreleased
 
-Recaps for other agents, off until you name them in `agents`
-(`{"agents": ["codex"]}`):
+Recaps for other agents. `agents` in `config.json` lists the ones recapped,
+`["claude", "codex"]` unless you say otherwise.
 
+- **Codex agents are recapped, with nothing to set up.** If you run Codex
+  in herdr, its agents now get recaps as Claude's do, each one a short
+  request against your Codex plan or key. `"agents": ["claude"]` turns that
+  off.
 - **Codex recaps itself**, as Claude does: a fork of the pane's session that
   is never saved (`codex exec fork --ephemeral`, read-only), so the
   conversation goes nowhere it hadn't been. The session is found from the
   pane's Codex process; herdr's Codex integration isn't needed.
-- **OpenCode and Hermes, through Memex**, by
+- **OpenCode and Hermes, through Memex, when you add them to `agents`**, by
   [@saforem2](https://github.com/saforem2) (#1): Memex reads the end of the
   session, and the user and assistant text is summarized by Claude Code
   (`haiku` by default, or your own `summarizer` command). Sessions are

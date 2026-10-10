@@ -335,7 +335,7 @@ func TestMemexCacheFreshnessUsesSessionStamp(t *testing.T) {
 }
 
 func TestSupportedAgentsCanBeScheduled(t *testing.T) {
-	others := withDefaults(config{Agents: []string{"codex", "opencode", "hermes", "unknown"}})
+	others := withDefaults(config{Agents: []string{"claude", "codex", "opencode", "hermes", "unknown"}})
 	for _, agent := range []string{"claude", "codex", "opencode", "hermes"} {
 		if !waiting(others, agentInfo{Agent: agent, Status: "done", AgentSession: agentSession{Kind: "id", Value: "session"}}) {
 			t.Errorf("%s was not scheduled", agent)
@@ -344,13 +344,18 @@ func TestSupportedAgentsCanBeScheduled(t *testing.T) {
 	if waiting(others, agentInfo{Agent: "unknown", Status: "done"}) {
 		t.Error("unknown agent was scheduled")
 	}
-	// Only Claude's until the others are asked for, and then only those.
-	codex := agentInfo{Agent: "codex", Status: "done", AgentSession: agentSession{Kind: "id", Value: "session"}}
-	if waiting(withDefaults(config{}), codex) || waiting(withDefaults(config{Agents: []string{"opencode"}}), codex) {
-		t.Error("codex was scheduled without being asked for")
+	// Claude and Codex unless config.json says otherwise; one read through
+	// Memex only when it's named.
+	claude := agentInfo{Agent: "claude", Status: "done"}
+	codex := agentInfo{Agent: "codex", Status: "done"}
+	opencode := agentInfo{Agent: "opencode", Status: "done", AgentSession: agentSession{Kind: "id", Value: "session"}}
+	defaults := withDefaults(config{})
+	if !waiting(defaults, claude) || !waiting(defaults, codex) || waiting(defaults, opencode) {
+		t.Error("the defaults aren't Claude and Codex alone")
 	}
-	if !waiting(withDefaults(config{}), agentInfo{Agent: "claude", Status: "done"}) {
-		t.Error("claude wasn't scheduled")
+	justClaude := withDefaults(config{Agents: []string{"claude"}})
+	if !waiting(justClaude, claude) || waiting(justClaude, codex) {
+		t.Error("codex was scheduled though config.json left it out")
 	}
 }
 
