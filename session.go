@@ -9,12 +9,19 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // claudeSession is where an agent's conversation lives, and what
 // `claude --resume` needs to pick it up.
 type claudeSession struct {
-	ID string
+	ID           string
+	Agent        string
+	Stamp        string
+	MessageCount int
+	// Deadline is the end of the whole lookup-and-recap operation. Memex
+	// resolution, lock acquisition, transcript paging, and summarization share it.
+	Deadline time.Time
 	// ConfigDir is the agent's CLAUDE_CONFIG_DIR, or ~/.claude. Profile
 	// switchers (clauth and the like) give each profile its own, so it's read
 	// from the agent's process rather than assumed.
@@ -37,6 +44,7 @@ type claudeSession struct {
 }
 
 var errNotClaude = errors.New("no Claude process in this pane")
+var errSessionNotIndexed = errors.New("session is not indexed by Memex")
 
 var sessionIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$`)
 

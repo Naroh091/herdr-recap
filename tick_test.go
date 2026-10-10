@@ -16,7 +16,7 @@ func withHerdr(t *testing.T, agents []agentInfo, s claudeSession) *[][]string {
 	t.Setenv("HERDR_PLUGIN_EVENT_JSON", "")
 	oldAgents, oldSession, oldSpawn := agentsNow, sessionOf, spawn
 	agentsNow = func() ([]agentInfo, error) { return agents, nil }
-	sessionOf = func(string) (claudeSession, error) { return s, nil }
+	sessionOf = func(context.Context, config, agentInfo) (claudeSession, error) { return s, nil }
 	var spawned [][]string
 	spawn = func(args ...string) error { spawned = append(spawned, args); return nil }
 	t.Cleanup(func() { agentsNow, sessionOf, spawn = oldAgents, oldSession, oldSpawn })
@@ -33,7 +33,7 @@ func TestTickSchedulesAgentsWaitingOnYou(t *testing.T) {
 		claudeAgent("w1:p2", "blocked", 2),
 		claudeAgent("w1:p3", "working", 9),
 		claudeAgent("w1:p4", "idle", 4),
-		{PaneID: "w1:p5", Agent: "codex", Status: "done", StateChangeSeq: 1},
+		{PaneID: "w1:p5", Agent: "codex", Status: "done", StateChangeSeq: 1, AgentSession: agentSession{Kind: "id", Value: "codex-session"}},
 	}, claudeSession{})
 	if err := tick(withDefaults(config{RecapAfterSeconds: 240})); err != nil {
 		t.Fatal(err)
@@ -41,6 +41,7 @@ func TestTickSchedulesAgentsWaitingOnYou(t *testing.T) {
 	want := [][]string{
 		{"recap", "--after", "240", "--seq", "5", "w1:p1"},
 		{"recap", "--after", "240", "--seq", "2", "w1:p2"},
+		{"recap", "--after", "240", "--seq", "1", "w1:p5"},
 	}
 	if !slices.EqualFunc(*spawned, want, slices.Equal) {
 		t.Errorf("spawned %v", *spawned)
@@ -107,7 +108,7 @@ func TestALaterRecapOnlyIfYouStillHaventLooked(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			withHerdr(t, c.now, claudeSession{})
 			s := testSessionWith(t, "one\n")
-			sessionOf = func(string) (claudeSession, error) { return s, nil }
+			sessionOf = func(context.Context, config, agentInfo) (claudeSession, error) { return s, nil }
 			calls := withClaude(t, okReply)
 			if err := recapLater(context.Background(), cfg, 0, 5, "w1:p1"); err != nil {
 				t.Fatal(err)

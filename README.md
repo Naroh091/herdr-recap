@@ -102,9 +102,13 @@ there.
 ## Requirements
 
 - **herdr 0.9.0** or later.
-- **Claude Code** with `/recap` (2.1.x), signed in. Recaps and the details
-  from the conversation are Claude-only; other agents are listed with their
-  status, title, branch and changes.
+- **Claude Code** with `/recap` (2.1.x), signed in. Claude sessions keep their
+  native `/recap` path.
+- **Memex 0.24.0** or later for Codex and OpenCode recaps. Hermes recaps
+  require [nicosuave/memex#220](https://github.com/nicosuave/memex/pull/220),
+  or a later Memex release containing it. Memex must have indexed the session.
+  Claude Code print mode summarizes the bounded Memex transcript by default;
+  `summarizer` can replace it.
 - **Linux** or **macOS**, on arm64 or x86-64.
 
 ## Install
@@ -185,8 +189,9 @@ conversation does.
 
 ## When recaps are written
 
-Soon after a turn ends. When a Claude agent finishes (done) or stops to ask
-you something (blocked), herdr tells the plugin, which waits
+Soon after a turn ends. When a supported agent -- Claude, Codex, OpenCode, or
+Hermes -- finishes (done) or stops to ask you something (blocked), herdr tells
+the plugin, which waits
 `recap_after_seconds` (3 minutes). If by then you still haven't looked at the
 agent, its recap is written; if you have (done turns to idle) or you answered
 it, nothing is spent. So the agents you're working with cost nothing, and the
@@ -198,13 +203,20 @@ time, in the background. The rows show what's already there meanwhile.
 
 ## What it costs
 
-A recap is one short Claude request on the agent's own conversation, billed
-like any other (or counted against your plan). Written soon after the turn,
-it reuses the agent's prompt cache: in testing, about 2¢ at list price on a
-~70k-token conversation, and a few cents on bigger ones. Once the cache has
-expired (5 minutes by default, an hour on some plans) the whole conversation
-is read again, which costs several times more. That's why the wait is 3
-minutes: keep `recap_after_seconds` under your cache's lifetime.
+Native Claude recaps are one short Claude request on the agent's own
+conversation, billed like any other (or counted against your plan). Written
+soon after the turn, they reuse that session's prompt cache: in testing, about
+2¢ at list price on a ~70k-token conversation, and a few cents on bigger ones.
+Once the cache has expired (5 minutes by default, an hour on some plans), the
+whole conversation is read again. Keep `recap_after_seconds` under your cache's
+lifetime when that reuse matters.
+
+Codex, OpenCode, and Hermes recaps do not reuse the agent's session cache.
+Memex reads a bounded recent transcript, then the configured summarizer handles
+it as a fresh bounded request. Measured large examples with the default Claude
+summarizer cost about $0.27-$0.29 each. That is an example, not a universal
+price: cost varies with transcript length, model, provider, plan, and custom
+`summarizer` configuration.
 
 At most one recap per agent each time you walk away from it: an agent
 sitting in done starts no new turns.
@@ -221,8 +233,12 @@ Optional: `config.json` in the plugin's config directory
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `recap_after_seconds` | `180` | How long an agent waits on you, unlooked at, before its recap is written |
-| `claude` | the agent's own | The Claude Code binary to run recaps with. By default the one the agent runs, found on the agent's PATH (herdr's own PATH often lacks `~/.local/bin`) |
-| `timeout_seconds` | `120` | The longest one recap may take |
+| `claude` | the agent's own | Claude Code binary for native Claude recaps and the default non-Claude summarizer |
+| `memex` | `"memex"` | Memex binary used to resolve and read Codex, OpenCode, and Hermes sessions |
+| `transcript_max_chars` | `24000` | Maximum recent user/assistant transcript characters sent to the summarizer |
+| `summarizer_model` | Claude default | Optional model passed to the default Claude print-mode summarizer |
+| `summarizer` | Claude print mode | Optional command argv array, for example `["my-summarizer", "--brief"]`; it reads the prompt on stdin and must print only recap text |
+| `timeout_seconds` | `120` | The longest one whole recap may take, covering the Memex lookup, every transcript page and the summarizer together |
 | `theme` | ask the terminal | `"dark"` or `"light"` background |
 | `tokens` | all | Which pane tokens to show, in order, e.g. `["pr"]`. By default all, with a PR from herdr-github said once: its `prs` (state, checks and the agent's other PRs), or else its `pr`, without the `pr_*` details |
 
@@ -262,15 +278,22 @@ state in the state's colour, the checks and the review in theirs.
 
 ## Privacy
 
-Recaps are made by the same Claude Code, account and settings the agent uses,
-on its own conversation, so nothing goes anywhere it hadn't already. They're
-kept in `~/.local/state/herdr/plugins/herdr-recap/recaps/`, one small file
-per session, readable only by you.
+Claude recaps are made by the same Claude Code, account and settings the agent
+uses, on its own conversation. Non-Claude recaps read a bounded page through
+Memex and send only user/assistant text to the configured summarizer, as a
+JSON string in a JSON object the summarizer is told to treat as data, so a
+transcript can't close its own delimiter and give the summarizer instructions.
+A Memex or summarizer process that floods stdout or stderr is killed and the
+recap fails rather than filling memory. The
+default summarizer is a new, non-persistent Claude print-mode request and has
+the usual Claude billing or plan cost. Recaps are kept in
+`~/.local/state/herdr/plugins/herdr-recap/recaps/`, readable only by you.
 
-The recap is a fork of the conversation that is never saved: the agent's own
-session isn't written to, and it doesn't show up in `claude --resume`. It
-does run with your Claude Code settings, so your own hooks (a notification on
-stop, say) run for it too.
+A native Claude recap is a fork of the conversation that is never saved: the
+agent's own session isn't written to, and it doesn't show up in
+`claude --resume`. It does run with your Claude Code settings, so your own hooks
+(a notification on stop, say) run for it too. A default non-Claude recap is a
+separate print-mode Claude request, also with session persistence disabled.
 
 ## Troubleshooting
 
@@ -305,7 +328,7 @@ profile switcher (clauth and the like) can name a different session: the
 process's `CLAUDE_CONFIG_DIR` (from `/proc` on Linux, `ps` on macOS) leads
 to `sessions/<pid>.json`, which names the session and where it was started.
 
-The rest of a row comes from the end of the session's transcript: the last
+For Claude, the rest of a row comes from the end of the session's transcript: the last
 tool call without a result (what a blocked agent is asking), its task list,
 branch, model, mode, your last prompt, and when each happened. Changes come
 from `git status` and `git diff --shortstat` in the agent's folder, read
@@ -322,6 +345,14 @@ herdr's environment (so herdr's own Claude hooks don't mistake it for an
 agent). It's cached with the transcript's size and time, and counts as
 current until the transcript changes. One recap per session runs at a time:
 another asking for the same one waits and takes its result.
+
+For Codex, OpenCode, and Hermes, herdr's exact `agent_session.value` and source
+are matched with `memex sessions`. The plugin then reads recent records with a
+bounded `memex session --source-path ... --limit 500 --max-chars ...` request,
+keeps only user and assistant text, and treats that text as untrusted data in
+the summarizer prompt. Lifecycle, system/developer, tool-call, and tool-result
+bodies are excluded. Cache freshness uses Memex's last activity and message
+count instead of the shared database file timestamp.
 
 The `pane.agent_status_changed` hook (`tick`) only reads the agent list and
 starts a detached `recap --after` for an agent now waiting on you, once per

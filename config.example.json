@@ -1,5 +1,8 @@
 {
   "recap_after_seconds": 180,
   "timeout_seconds": 120,
+  "memex": "memex",
+  "transcript_max_chars": 24000,
+  "summarizer_model": "haiku",
   "theme": "dark"
 }

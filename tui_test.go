@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -84,7 +85,7 @@ func TestOutOfDateRecapsAreRewrittenOnOpen(t *testing.T) {
 
 func TestRowsSayWhyThereIsNoRecap(t *testing.T) {
 	m, _ := demoModel(t)
-	if e := m.entries["w2:p3"]; e.note != "Recaps are for Claude agents." {
+	if e := m.entries["w2:p3"]; e.note != "Recaps aren't available for this agent." {
 		t.Errorf("codex: %q", e.note)
 	}
 	if e := m.entries["w3:p4"]; e.note != "Nothing to recap yet." || e.recapping {
@@ -106,7 +107,7 @@ func TestTheViewShowsStatusTitleAndRecap(t *testing.T) {
 		"settings-dark-mode · 14 files +530 −121 · 3/7 tasks", "main · ↑1", "codex · #415",
 		"opus 5.5 · acceptEdits",
 		"● Flaky checkout e2e test", "✓ Release notes for 2.4",
-		"scratch", "Nothing to recap yet.", "Recaps are for Claude agents.",
+		"scratch", "Nothing to recap yet.", "Recaps aren't available for this agent.",
 		"enter go to agent   tab reply   ^r suggest title   ←→ stage   esc close", // pills: a cell either side, one between
 	} {
 		if !strings.Contains(v, want) {
@@ -493,6 +494,67 @@ func TestAWorkingAgentIsRecappedOnceWhileOpen(t *testing.T) {
 	next, cmd := m.Update(sessionMsg{pane: "w1:p1", seq: e.agent.StateChangeSeq, session: *e.session, cached: e.recap})
 	if cmd != nil || next.(model).entries["w1:p1"].recapping {
 		t.Error("recapped a working agent again")
+	}
+}
+
+type flakySessionSource struct {
+	*demoSource
+	calls int
+}
+
+func (f *flakySessionSource) session(context.Context, agentInfo) (claudeSession, error) {
+	f.calls++
+	if f.calls == 1 {
+		return claudeSession{}, errSessionNotIndexed
+	}
+	return claudeSession{Agent: "codex", ID: codexSession, Transcript: "/x", Stamp: "v1"}, nil
+}
+
+func TestFailedMemexLookupRetriesWithBoundedBackoff(t *testing.T) {
+	src := &flakySessionSource{demoSource: newDemoSource()}
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	m := newModel(context.Background(), src)
+	m.now = func() time.Time { return now }
+	a := agentInfo{PaneID: "w9:p1", Agent: "codex", Status: "done", StateChangeSeq: 1, AgentSession: agentSession{Kind: "id", Value: codexSession}}
+	m = settle(t, m, m.updateAgents([]agentInfo{a}, nil))
+	if src.calls != 1 {
+		t.Fatalf("initial calls: %d", src.calls)
+	}
+	m.updateAgents([]agentInfo{a}, nil)
+	if src.calls != 1 {
+		t.Fatalf("retried without backoff: %d", src.calls)
+	}
+	now = now.Add(resolveRetryBase)
+	m = settle(t, m, m.updateAgents([]agentInfo{a}, nil))
+	if src.calls != 2 || m.entries[a.PaneID].session == nil {
+		t.Fatalf("calls %d, entry %+v", src.calls, m.entries[a.PaneID])
+	}
+}
+
+type refreshingSessionSource struct {
+	*demoSource
+	calls int
+}
+
+func (r *refreshingSessionSource) session(context.Context, agentInfo) (claudeSession, error) {
+	r.calls++
+	return claudeSession{Agent: "opencode", ID: openCodeSession, Transcript: "/x", Stamp: fmt.Sprintf("v%d", r.calls)}, nil
+}
+
+func TestMemexSessionRefreshesWhileStateIsUnchanged(t *testing.T) {
+	src := &refreshingSessionSource{demoSource: newDemoSource()}
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	m := newModel(context.Background(), src)
+	m.now = func() time.Time { return now }
+	a := agentInfo{PaneID: "w9:p2", Agent: "opencode", Status: "done", StateChangeSeq: 1, AgentSession: agentSession{Kind: "id", Value: openCodeSession}}
+	m = settle(t, m, m.updateAgents([]agentInfo{a}, nil))
+	if got := m.entries[a.PaneID].session.Stamp; got != "v1" {
+		t.Fatalf("stamp %q", got)
+	}
+	now = now.Add(memexRefreshEvery)
+	m = settle(t, m, m.updateAgents([]agentInfo{a}, nil))
+	if src.calls != 2 || m.entries[a.PaneID].session.Stamp != "v2" {
+		t.Fatalf("calls %d, session %+v", src.calls, m.entries[a.PaneID].session)
 	}
 }
 

@@ -19,6 +19,8 @@ import (
 // hasn't changed since.
 type recap struct {
 	Session string    `json:"session"`
+	Source  string    `json:"source,omitempty"`
+	Stamp   string    `json:"stamp,omitempty"`
 	Text    string    `json:"text"`
 	At      time.Time `json:"at"`
 	Size    int64     `json:"size"`
@@ -86,6 +88,9 @@ func fresh(r *recap, s claudeSession) bool {
 	if r == nil {
 		return false
 	}
+	if s.Agent != "" && s.Agent != "claude" {
+		return r.Source == s.Agent && r.Stamp != "" && r.Stamp == s.Stamp
+	}
 	size, mod := transcriptStamp(s.Transcript)
 	if r.Size == size && r.ModTime.Equal(mod) {
 		return true
@@ -105,11 +110,13 @@ var errNothingYet = errors.New("nothing to recap yet")
 // better one asked for alongside the recap, once per session: the suggestion
 // is kept from recap to recap.
 func ensureRecap(ctx context.Context, cfg config, s claudeSession, title string, force bool) (r recap, ran bool, err error) {
+	ctx, cancel := recapContext(ctx, cfg)
+	defer cancel()
 	if s.Transcript == "" {
 		return recap{}, false, errNothingYet
 	}
 	started := time.Now()
-	unlock, err := lockSession(s.ID)
+	unlock, err := lockSession(ctx, s.ID)
 	if err != nil {
 		return recap{}, false, err
 	}
@@ -153,7 +160,7 @@ func ensureRecap(ctx context.Context, cfg config, s claudeSession, title string,
 }
 
 // lockSession holds the session's lock file until unlock is called.
-func lockSession(id string) (func(), error) {
+func lockSession(ctx context.Context, id string) (func(), error) {
 	if err := os.MkdirAll(recapDir(), 0o700); err != nil {
 		return nil, err
 	}
@@ -161,9 +168,21 @@ func lockSession(id string) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		f.Close()
-		return nil, err
+	for {
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if err != syscall.EWOULDBLOCK && err != syscall.EAGAIN {
+			f.Close()
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			f.Close()
+			return nil, ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 	return func() {
 		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
@@ -236,6 +255,9 @@ func claudeBinary(cfg config, s claudeSession) string {
 }
 
 func runRecap(ctx context.Context, cfg config, s claudeSession) (recap, error) {
+	if s.Agent != "" && s.Agent != "claude" {
+		return runMemexRecap(ctx, cfg, s)
+	}
 	out, err := runCommand(ctx, cfg, s, recapArgs(s.ID))
 	if err != nil {
 		return recap{}, err

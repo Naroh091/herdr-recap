@@ -1,4 +1,4 @@
-// herdr-recap: every Claude agent in a herdr popup, with a one-line recap of
+// herdr-recap: every coding agent in a herdr popup, with a one-line recap of
 // where it got to, written while you were away.
 package main
 
@@ -24,7 +24,7 @@ const usage = `herdr-recap — what each of your agents was doing, in herdr
   picker [--demo]  the popup itself; --demo (or HERDR_RECAP_DEMO=1) shows
                    fictional agents: no herdr or Claude needed, safe to screenshot
   tick             what herdr runs on an agent status change: schedules a recap
-                   for each Claude agent now waiting on you
+                   for each supported agent now waiting on you
   recap PANE       write PANE's recap now, if it's out of date (--force: anyway)
   recap --after S --seq N PANE
                    (internal) wait S seconds, then recap PANE if its status is
@@ -125,7 +125,28 @@ func runRecapCommand(ctx context.Context, cfg config, args []string) error {
 		}
 		return recapLater(ctx, cfg, time.Duration(*after)*time.Second, *seq, pane)
 	}
+	ctx, cancel := recapContext(ctx, cfg)
+	defer cancel()
+	// Preserve Claude's process-based resolver. Only consult agent.list when
+	// the pane is not Claude and needs Memex metadata.
 	s, err := resolveSession(pane)
+	if err != nil {
+		var agent *agentInfo
+		agents, listErr := listAgents()
+		if listErr != nil {
+			return listErr
+		}
+		for i := range agents {
+			if agents[i].PaneID == pane {
+				agent = &agents[i]
+				break
+			}
+		}
+		if agent == nil {
+			return fmt.Errorf("pane %s has no agent", pane)
+		}
+		s, err = resolveAgentSession(ctx, cfg, *agent)
+	}
 	if err != nil {
 		return err
 	}

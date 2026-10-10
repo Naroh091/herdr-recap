@@ -11,12 +11,16 @@ import (
 type config struct {
 	// RecapAfterSeconds is how long an agent has to sit finished (done) or
 	// waiting on you (blocked) without you looking before its recap is
-	// written. Short glances away cost nothing. Past the prompt cache's
-	// lifetime (5 minutes by default) each recap costs several times more.
+	// written. Short glances away cost nothing. Native Claude recaps can reuse
+	// the session cache when this stays below that cache's lifetime.
 	RecapAfterSeconds int `json:"recap_after_seconds"`
 	// Claude is the claude binary recaps run with. Empty = the one the agent
 	// runs, or "claude" on PATH.
-	Claude string `json:"claude"`
+	Claude             string   `json:"claude"`
+	Memex              string   `json:"memex"`
+	Summarizer         []string `json:"summarizer"`
+	SummarizerModel    string   `json:"summarizer_model"`
+	TranscriptMaxChars int      `json:"transcript_max_chars"`
 	// TimeoutSeconds bounds one recap.
 	TimeoutSeconds int `json:"timeout_seconds"`
 	// Theme: "dark", "light", or empty to ask the terminal.
@@ -84,6 +88,16 @@ func withDefaults(cfg config) config {
 		cfg.RecapAfterSeconds = 180
 	}
 	cfg.Claude = expandHome(cfg.Claude)
+	cfg.Memex = expandHome(cfg.Memex)
+	if cfg.Memex == "" {
+		cfg.Memex = "memex"
+	}
+	if cfg.TranscriptMaxChars <= 0 {
+		cfg.TranscriptMaxChars = 24000
+	}
+	for i := range cfg.Summarizer {
+		cfg.Summarizer[i] = expandHome(cfg.Summarizer[i])
+	}
 	if cfg.TimeoutSeconds <= 0 {
 		cfg.TimeoutSeconds = 120
 	}

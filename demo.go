@@ -139,8 +139,8 @@ func (d *demoSource) find(paneID string) *demoAgent {
 	return nil
 }
 
-func (d *demoSource) session(paneID string) (claudeSession, error) {
-	a := d.find(paneID)
+func (d *demoSource) session(_ context.Context, info agentInfo) (claudeSession, error) {
+	a := d.find(info.PaneID)
 	if a == nil || a.session == "" {
 		return claudeSession{}, errNotClaude
 	}

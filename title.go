@@ -170,7 +170,7 @@ func ensureTitle(ctx context.Context, cfg config, s claudeSession, title string)
 	if err != nil {
 		return recap{}, err
 	}
-	unlock, err := lockSession(s.ID)
+	unlock, err := lockSession(ctx, s.ID)
 	if err != nil {
 		return recap{}, err
 	}
@@ -202,7 +202,7 @@ func renamePending(paneID string) bool {
 
 // askRename notes that the session is to be given its suggested title.
 func askRename(paneID, sessionID string) error {
-	unlock, err := lockSession(sessionID)
+	unlock, err := lockSession(context.Background(), sessionID)
 	if err != nil {
 		return err
 	}
@@ -231,7 +231,7 @@ var promptAgent = func(paneID, text string) error {
 // /rename), once: with none pending it does nothing. The caller has found
 // the agent between turns.
 func giveTitle(paneID, sessionID string) error {
-	unlock, err := lockSession(sessionID)
+	unlock, err := lockSession(context.Background(), sessionID)
 	if err != nil {
 		return err
 	}
@@ -252,7 +252,7 @@ func giveTitle(paneID, sessionID string) error {
 // settleTitle notes that the session's suggested title was taken or turned
 // down, so it isn't offered again.
 func settleTitle(sessionID string) error {
-	unlock, err := lockSession(sessionID)
+	unlock, err := lockSession(context.Background(), sessionID)
 	if err != nil {
 		return err
 	}
