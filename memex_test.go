@@ -97,7 +97,7 @@ func TestResolveAndRecapKeepCallersDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	a := agentInfo{Agent: "codex", AgentSession: agentSession{Source: "herdr:codex", Kind: "id", Value: codexSession}}
-	s, err := resolveAgentSession(ctx, config{TimeoutSeconds: 30}, a)
+	s, err := resolveMemexSession(ctx, config{TimeoutSeconds: 30}, a)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestResolveMemexSessionsFromHerdrMetadata(t *testing.T) {
 		{"opencode", "herdr:opencode", openCodeSession, "/data/opencode.db"},
 	} {
 		a := agentInfo{Agent: tc.agent, Cwd: "/repo", AgentSession: agentSession{Source: tc.source, Kind: "id", Value: tc.id}}
-		s, err := resolveAgentSession(context.Background(), withDefaults(config{}), a)
+		s, err := resolveMemexSession(context.Background(), withDefaults(config{}), a)
 		if err != nil {
 			t.Fatalf("%s: %v", tc.agent, err)
 		}
@@ -213,7 +213,7 @@ func TestResolveMemexSessionRequiresExactMatch(t *testing.T) {
 	}
 	t.Cleanup(func() { runMemex = old })
 	a := agentInfo{Agent: "codex", AgentSession: agentSession{Source: "herdr:codex", Kind: "id", Value: codexSession}}
-	if _, err := resolveAgentSession(context.Background(), withDefaults(config{}), a); !errors.Is(err, errSessionNotIndexed) {
+	if _, err := resolveMemexSession(context.Background(), withDefaults(config{}), a); !errors.Is(err, errSessionNotIndexed) {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -224,7 +224,7 @@ func TestResolveMemexSessionRejectsUnsafeIDBeforeRunningMemex(t *testing.T) {
 	runMemex = func(context.Context, config, ...string) ([]byte, error) { called = true; return nil, nil }
 	t.Cleanup(func() { runMemex = old })
 	a := agentInfo{Agent: "codex", AgentSession: agentSession{Source: "herdr:codex", Kind: "id", Value: "../../escape"}}
-	if _, err := resolveAgentSession(context.Background(), withDefaults(config{}), a); err == nil || called {
+	if _, err := resolveMemexSession(context.Background(), withDefaults(config{}), a); err == nil || called {
 		t.Fatalf("err %v, called %v", err, called)
 	}
 }
@@ -335,7 +335,7 @@ func TestMemexCacheFreshnessUsesSessionStamp(t *testing.T) {
 }
 
 func TestSupportedAgentsCanBeScheduled(t *testing.T) {
-	others := withDefaults(config{MemexAgents: []string{"codex", "opencode", "hermes", "unknown"}})
+	others := withDefaults(config{Agents: []string{"codex", "opencode", "hermes", "unknown"}})
 	for _, agent := range []string{"claude", "codex", "opencode", "hermes"} {
 		if !waiting(others, agentInfo{Agent: agent, Status: "done", AgentSession: agentSession{Kind: "id", Value: "session"}}) {
 			t.Errorf("%s was not scheduled", agent)
@@ -346,7 +346,7 @@ func TestSupportedAgentsCanBeScheduled(t *testing.T) {
 	}
 	// Only Claude's until the others are asked for, and then only those.
 	codex := agentInfo{Agent: "codex", Status: "done", AgentSession: agentSession{Kind: "id", Value: "session"}}
-	if waiting(withDefaults(config{}), codex) || waiting(withDefaults(config{MemexAgents: []string{"opencode"}}), codex) {
+	if waiting(withDefaults(config{}), codex) || waiting(withDefaults(config{Agents: []string{"opencode"}}), codex) {
 		t.Error("codex was scheduled without being asked for")
 	}
 	if !waiting(withDefaults(config{}), agentInfo{Agent: "claude", Status: "done"}) {
@@ -401,7 +401,7 @@ func TestTheSummarizerRunsAsTheAgentsPaneDoes(t *testing.T) {
 	}
 	t.Cleanup(func() { runMemex, paneEnv = oldMemex, oldEnv })
 	a := agentInfo{PaneID: "w1:p5", Agent: "codex", AgentSession: agentSession{Source: "herdr:codex", Kind: "id", Value: codexSession}}
-	s, err := resolveAgentSession(context.Background(), withDefaults(config{}), a)
+	s, err := resolveMemexSession(context.Background(), withDefaults(config{}), a)
 	if err != nil {
 		t.Fatal(err)
 	}

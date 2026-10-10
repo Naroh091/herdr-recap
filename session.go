@@ -15,10 +15,12 @@ import (
 // `claude --resume` needs to pick it up.
 type claudeSession struct {
 	ID string
-	// Agent is whose session it is: "" or claude for Claude's own, else one
+	// Agent is whose session it is: "" or claude for Claude's own. Another
+	// agent's is recapped by that agent itself (Native: Codex, codex.go) or
 	// read through Memex (memex.go), which says how current it is (Stamp:
 	// its last activity and message count) and how long (MessageCount).
 	Agent        string
+	Native       bool
 	Stamp        string
 	MessageCount int
 	// ConfigDir is the agent's CLAUDE_CONFIG_DIR, or ~/.claude. Profile

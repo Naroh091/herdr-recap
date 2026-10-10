@@ -105,8 +105,9 @@ there.
 - **herdr 0.9.0** or later.
 - **Claude Code** with `/recap` (2.1.x), signed in. Claude sessions keep their
   native `/recap` path.
-- Optional, for [other agents](#other-agents): **Memex 0.24.0** or later for
-  Codex and OpenCode recaps. Hermes recaps require
+- Optional, for [other agents](#other-agents): **Codex** for its own recaps
+  (tried with 0.157), and **Memex 0.24.0** or later for OpenCode recaps.
+  Hermes recaps require
   [nicosuave/memex#220](https://github.com/nicosuave/memex/pull/220), or a
   later Memex release containing it.
 - **Linux** or **macOS**, on arm64 or x86-64.
@@ -189,24 +190,34 @@ conversation does.
 
 ## Other agents
 
-Recaps are Claude's until you ask for more. Codex, OpenCode and Hermes can
-be recapped through [Memex](https://github.com/nicosuave/memex), which reads
-their sessions. Name the ones you want in `config.json`:
+Recaps are Claude's until you ask for more. Name the agents you want in
+`config.json`:
 
 ```json
-{ "memex_agents": ["codex", "opencode"] }
+{ "agents": ["codex", "opencode"] }
 ```
 
-It's yours to turn on because it changes two things. The conversation
-leaves the agent that had it: Memex reads the end of it, and the user and
-assistant text goes to a summarizer, by default Claude Code (`haiku`) under
-the account of the agent's pane. And every recap is a request of its own,
-with no prompt cache to reuse.
+**Codex** recaps itself, as Claude does: `codex exec fork --ephemeral` forks
+the pane's session without saving anything and answers in it, read-only. So
+the conversation goes nowhere it hadn't been, it reads from the session's
+own prompt cache, and it needs nothing installed but Codex. The session is
+found from the pane's Codex process, which keeps its session file open; no
+herdr integration for Codex is needed.
 
-Memex has to have indexed the session; a row whose session it hasn't yet
-says so, and is looked up again while the popup is open. An agent you
-haven't named, or whose session herdr doesn't know, says *Recaps aren't
-available for this agent.* Titles are suggested for Claude agents only.
+**OpenCode** and **Hermes** are recapped through
+[Memex](https://github.com/nicosuave/memex), which reads their sessions.
+That takes the conversation out of the agent that had it: Memex reads the
+end of it, and the user and assistant text goes to a summarizer, by default
+Claude Code (`haiku`) under the account of the agent's pane, with no prompt
+cache to reuse. Memex has to have indexed the session, and herdr has to
+know its ID (its integration for that agent, `herdr integration install`); a
+row whose session Memex hasn't indexed yet says so, and is looked up again
+while the popup is open.
+
+Either way a recap is a request you pay for or that counts against a plan,
+which is why it's yours to turn on. An agent you haven't named says *Recaps
+aren't available for this agent.* Titles are suggested for Claude agents
+only.
 
 ## When recaps are written
 
@@ -232,7 +243,11 @@ Once the cache has expired (5 minutes by default, an hour on some plans), the
 whole conversation is read again. Keep `recap_after_seconds` under your cache's
 lifetime when that reuse matters.
 
-Codex, OpenCode, and Hermes recaps do not reuse the agent's session cache.
+A Codex recap is one short Codex request on its own conversation, against
+your Codex plan or key; in testing a fork read four fifths of a 56k-token
+session from its cache.
+
+OpenCode and Hermes recaps do not reuse the agent's session cache.
 Memex reads a bounded recent transcript, then the configured summarizer handles
 it as a fresh bounded request. Two large examples measured with Claude's
 default model cost about $0.27-$0.29 each; the summarizer now defaults to
@@ -256,8 +271,9 @@ Optional: `config.json` in the plugin's config directory
 | --- | --- | --- |
 | `recap_after_seconds` | `180` | How long an agent waits on you, unlooked at, before its recap is written |
 | `claude` | the agent's own | Claude Code binary for native Claude recaps and the default non-Claude summarizer |
-| `memex_agents` | none | The [other agents](#other-agents) to recap through Memex: any of `"codex"`, `"opencode"`, `"hermes"` |
-| `memex` | `"memex"` | Memex binary used to resolve and read Codex, OpenCode, and Hermes sessions |
+| `agents` | none | The [other agents](#other-agents) to recap: any of `"codex"`, `"opencode"`, `"hermes"` |
+| `codex` | the agent's own | The Codex binary to run Codex recaps with |
+| `memex` | `"memex"` | Memex binary used to resolve and read OpenCode and Hermes sessions |
 | `transcript_max_chars` | `24000` | Maximum recent user/assistant transcript characters sent to the summarizer |
 | `summarizer_model` | `"haiku"` | Model passed to the default Claude print-mode summarizer |
 | `summarizer` | Claude print mode | Optional command argv array, for example `["my-summarizer", "--brief"]`; it reads the prompt on stdin and must print only recap text |
@@ -303,8 +319,9 @@ state in the state's colour, the checks and the review in theirs.
 
 Claude recaps are made by the same Claude Code, account and settings the agent
 uses, on its own conversation, so nothing goes anywhere it hadn't already.
-Other agents are recapped only if you name them in `memex_agents`. Those
-recaps read a bounded page through
+Other agents are recapped only if you name them in `agents`. Codex's are
+made by Codex, the same way. OpenCode's and Hermes's read a bounded page
+through
 Memex and send only user/assistant text to the configured summarizer, as a
 JSON string in a JSON object the summarizer is told to treat as data, so a
 transcript can't close its own delimiter and give the summarizer instructions.
@@ -373,7 +390,13 @@ agent). It's cached with the transcript's size and time, and counts as
 current until the transcript changes. One recap per session runs at a time:
 another asking for the same one waits and takes its result.
 
-For Codex, OpenCode, and Hermes, herdr's exact `agent_session.value` and source
+For Codex, the session is the `rollout-…-<id>.jsonl` the pane's Codex process
+has open (`/proc/<pid>/fd` on Linux, `lsof` on macOS), and the recap is
+`codex exec fork <id> --ephemeral -c sandbox_mode="read-only"` with the pane's
+`PATH` and `CODEX_HOME`, run outside the agent's folder. It's cached with the
+session file's size and time, as Claude's is.
+
+For OpenCode and Hermes, herdr's exact `agent_session.value` and source
 are matched with `memex sessions`. The plugin then reads recent records with a
 bounded `memex session --source-path ... --limit 500 --max-chars ...` request,
 keeps only user and assistant text, and treats that text as untrusted data in

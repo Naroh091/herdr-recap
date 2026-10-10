@@ -137,13 +137,18 @@ func supportedAgent(agent string) bool {
 }
 
 // recapCapable: the agent's conversation can be recapped. Claude's always;
-// another's when you've named it in memex_agents and herdr knows its session.
+// another's when you've named it in agents. Codex's session is found from
+// its process; one read through Memex has to be known to herdr by its ID.
 func recapCapable(cfg config, a agentInfo) bool {
-	if a.Agent == "claude" {
+	switch {
+	case a.Agent == "claude":
+		return true
+	case !slices.Contains(cfg.Agents, a.Agent):
+		return false
+	case a.Agent == "codex":
 		return true
 	}
-	return slices.Contains(cfg.MemexAgents, a.Agent) && supportedAgent(a.Agent) &&
-		a.AgentSession.Kind == "id" && a.AgentSession.Value != ""
+	return supportedAgent(a.Agent) && a.AgentSession.Kind == "id" && a.AgentSession.Value != ""
 }
 
 // paneEnv is the environment of the agent in a pane: what a summarizer is
@@ -161,14 +166,25 @@ var paneEnv = func(paneID string) map[string]string {
 	return env
 }
 
+// resolveAgentSession finds the session in an agent's pane: Claude's and
+// Codex's from their processes, another's through Memex.
 func resolveAgentSession(ctx context.Context, cfg config, a agentInfo) (claudeSession, error) {
-	ctx, cancel := recapContext(ctx, cfg)
-	defer cancel()
-	if a.Agent == "claude" {
+	switch a.Agent {
+	case "claude":
 		s, err := resolveSession(a.PaneID)
 		s.Agent = "claude"
 		return s, err
+	case "codex":
+		return resolveCodexSession(a)
 	}
+	return resolveMemexSession(ctx, cfg, a)
+}
+
+// resolveMemexSession finds an agent's session in Memex's index, by the ID
+// herdr has for it.
+func resolveMemexSession(ctx context.Context, cfg config, a agentInfo) (claudeSession, error) {
+	ctx, cancel := recapContext(ctx, cfg)
+	defer cancel()
 	if !supportedAgent(a.Agent) || a.AgentSession.Kind != "id" || a.AgentSession.Value == "" {
 		return claudeSession{}, errSessionNotIndexed
 	}

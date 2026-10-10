@@ -529,7 +529,7 @@ func (m *model) maybeResolve(e *entry) tea.Cmd {
 		if e.retryAt.IsZero() || now.Before(e.retryAt) {
 			return nil
 		}
-	case e.agent.Agent != "claude" && !e.resolvedAt.IsZero():
+	case !claudes(*e.session) && !e.session.Native && !e.resolvedAt.IsZero():
 		if now.Before(e.resolvedAt.Add(memexRefreshEvery)) {
 			return nil
 		}

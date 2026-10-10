@@ -2,13 +2,20 @@
 
 ## Unreleased
 
-- **Recaps for Codex, OpenCode and Hermes, through Memex**, by
-  [@saforem2](https://github.com/saforem2) (#1). Off until you name the
-  agents in `memex_agents`: Memex reads the end of the session, and the user
-  and assistant text is summarized by Claude Code (`haiku` by default, or
-  your own `summarizer` command). Sessions are matched by the exact id herdr
-  reports, and the transcript is passed as data, with no tools, so it can't
-  instruct the summarizer. Titles stay Claude-only.
+Recaps for other agents, off until you name them in `agents`
+(`{"agents": ["codex"]}`):
+
+- **Codex recaps itself**, as Claude does: a fork of the pane's session that
+  is never saved (`codex exec fork --ephemeral`, read-only), so the
+  conversation goes nowhere it hadn't been. The session is found from the
+  pane's Codex process; herdr's Codex integration isn't needed.
+- **OpenCode and Hermes, through Memex**, by
+  [@saforem2](https://github.com/saforem2) (#1): Memex reads the end of the
+  session, and the user and assistant text is summarized by Claude Code
+  (`haiku` by default, or your own `summarizer` command). Sessions are
+  matched by the exact ID herdr reports, and the transcript is passed as
+  data, with no tools, so it can't instruct the summarizer.
+- Titles stay Claude-only.
 
 ## 0.5.0 - 2026-10-10
 

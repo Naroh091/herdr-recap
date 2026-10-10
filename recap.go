@@ -88,18 +88,19 @@ func fresh(r *recap, s claudeSession) bool {
 	if r == nil {
 		return false
 	}
-	if !claudes(s) {
+	if !claudes(s) && !s.Native {
 		return r.Source == s.Agent && r.Stamp != "" && r.Stamp == s.Stamp
 	}
 	size, mod := transcriptStamp(s.Transcript)
 	if r.Size == size && r.ModTime.Equal(mod) {
 		return true
 	}
-	return r.Size > 0 && size > r.Size && quietSince(s.Transcript, r.Size)
+	// Only Claude's transcripts are read for what was added since.
+	return claudes(s) && r.Size > 0 && size > r.Size && quietSince(s.Transcript, r.Size)
 }
 
-// claudes: the session is Claude's own, recapped by Claude itself, not one
-// read through Memex.
+// claudes: the session is Claude's own, recapped by Claude itself. Another
+// agent's is recapped by that agent (Native: Codex) or read through Memex.
 func claudes(s claudeSession) bool { return s.Agent == "" || s.Agent == "claude" }
 
 // errNothingYet: the session has no conversation to recap.
@@ -206,17 +207,21 @@ func recapArgs(id string) []string {
 // the recap to herdr as an agent in the pane the plugin runs in. It gets the
 // agent's CLAUDE_CONFIG_DIR, so it finds the agent's sessions and account,
 // and the agent's PATH, which herdr's own often isn't (no ~/.local/bin).
-func recapEnv(s claudeSession) []string {
+func recapEnv(s claudeSession) []string { return agentEnv(s, "CLAUDE_CONFIG_DIR") }
+
+// agentEnv is recapEnv for any agent: configVar names the variable its
+// config directory is given in (CLAUDE_CONFIG_DIR, CODEX_HOME).
+func agentEnv(s claudeSession, configVar string) []string {
 	var env []string
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "HERDR_") || strings.HasPrefix(kv, "CLAUDE_CONFIG_DIR=") ||
+		if strings.HasPrefix(kv, "HERDR_") || strings.HasPrefix(kv, configVar+"=") ||
 			(s.Path != "" && strings.HasPrefix(kv, "PATH=")) {
 			continue
 		}
 		env = append(env, kv)
 	}
 	if s.ConfigDirSet {
-		env = append(env, "CLAUDE_CONFIG_DIR="+s.ConfigDir)
+		env = append(env, configVar+"="+s.ConfigDir)
 	}
 	if s.Path != "" {
 		env = append(env, "PATH="+s.Path)
@@ -259,7 +264,10 @@ func claudeBinary(cfg config, s claudeSession) string {
 }
 
 func runRecap(ctx context.Context, cfg config, s claudeSession) (recap, error) {
-	if !claudes(s) {
+	switch {
+	case s.Native:
+		return runCodexRecap(ctx, cfg, s)
+	case !claudes(s):
 		return runMemexRecap(ctx, cfg, s)
 	}
 	out, err := runCommand(ctx, cfg, s, recapArgs(s.ID))
