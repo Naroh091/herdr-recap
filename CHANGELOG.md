@@ -19,10 +19,15 @@ Recaps for other agents. `agents` in `config.json` lists the ones recapped,
   (`haiku` by default, or your own `summarizer` command). Sessions are
   matched by the exact ID herdr reports, and the transcript is passed as
   data, with no tools, so it can't instruct the summarizer.
-- **A recap runs the width of the popup**, where it stopped at 80 columns:
-  on a wide terminal it's a line or two, and more agents fit.
 - **Better titles for Codex agents too**: asked for in a fork of its own,
   and given with Codex's `/rename`. Not for agents read through Memex.
+
+## 0.5.1 - 2026-10-11
+
+- **A recap runs the width of the popup**, where it stopped at 80 columns:
+  on a wide terminal it's a line or two, and more agents fit. It stops short
+  of the right edge by a margin that grows with the popup, 3 cells on a
+  narrow one and up to 8 on a wide one.
 
 ## 0.5.0 - 2026-10-10
 
