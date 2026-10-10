@@ -162,6 +162,9 @@ func quietSince(path string, from int64) bool {
 // ensureTitle asks for a title now, whatever the agent's own is like (the
 // popup's ^r), and keeps it with the session's recap as a new suggestion.
 func ensureTitle(ctx context.Context, cfg config, s claudeSession, title string) (recap, error) {
+	if !claudes(s) {
+		return recap{}, errors.New("titles are suggested for Claude agents")
+	}
 	if s.Transcript == "" {
 		return recap{}, errNothingYet
 	}

@@ -335,13 +335,22 @@ func TestMemexCacheFreshnessUsesSessionStamp(t *testing.T) {
 }
 
 func TestSupportedAgentsCanBeScheduled(t *testing.T) {
+	others := withDefaults(config{MemexAgents: []string{"codex", "opencode", "hermes", "unknown"}})
 	for _, agent := range []string{"claude", "codex", "opencode", "hermes"} {
-		if !waiting(agentInfo{Agent: agent, Status: "done", AgentSession: agentSession{Kind: "id", Value: "session"}}) {
+		if !waiting(others, agentInfo{Agent: agent, Status: "done", AgentSession: agentSession{Kind: "id", Value: "session"}}) {
 			t.Errorf("%s was not scheduled", agent)
 		}
 	}
-	if waiting(agentInfo{Agent: "unknown", Status: "done"}) {
+	if waiting(others, agentInfo{Agent: "unknown", Status: "done"}) {
 		t.Error("unknown agent was scheduled")
+	}
+	// Only Claude's until the others are asked for, and then only those.
+	codex := agentInfo{Agent: "codex", Status: "done", AgentSession: agentSession{Kind: "id", Value: "session"}}
+	if waiting(withDefaults(config{}), codex) || waiting(withDefaults(config{MemexAgents: []string{"opencode"}}), codex) {
+		t.Error("codex was scheduled without being asked for")
+	}
+	if !waiting(withDefaults(config{}), agentInfo{Agent: "claude", Status: "done"}) {
+		t.Error("claude wasn't scheduled")
 	}
 }
 
@@ -352,4 +361,55 @@ func containsArgPair(args []string, key, value string) bool {
 		}
 	}
 	return false
+}
+
+func TestAMemexSessionGetsNoTitleSuggested(t *testing.T) {
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", t.TempDir())
+	oldMemex, oldSummary, oldClaude := runMemex, runSummaryCommand, runCommand
+	runMemex = func(context.Context, config, ...string) ([]byte, error) {
+		return []byte(`[{"record":{"role":"user","text":"question"}}]`), nil
+	}
+	runSummaryCommand = func(context.Context, config, claudeSession, string) ([]byte, error) {
+		return []byte(`{"result":"done"}`), nil
+	}
+	// Claude can't resume another agent's session to ask it for one.
+	runCommand = func(context.Context, config, claudeSession, []string) ([]byte, error) {
+		t.Error("claude was run on a session that isn't its own")
+		return nil, errors.New("no")
+	}
+	t.Cleanup(func() { runMemex, runSummaryCommand, runCommand = oldMemex, oldSummary, oldClaude })
+	s := claudeSession{Agent: "codex", ID: codexSession, Transcript: "/x", Stamp: "v1", MessageCount: 1}
+	cfg := withDefaults(config{})
+	if r, _, err := ensureRecap(context.Background(), cfg, s, "a-slug-for-a-title", false); err != nil || r.Title != "" {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if _, err := ensureTitle(context.Background(), cfg, s, ""); err == nil {
+		t.Error("a title was asked of a session that isn't Claude's")
+	}
+}
+
+func TestTheSummarizerRunsAsTheAgentsPaneDoes(t *testing.T) {
+	oldMemex, oldEnv := runMemex, paneEnv
+	runMemex = func(context.Context, config, ...string) ([]byte, error) {
+		return []byte(`[{"source":"codex","session_id":"` + codexSession + `","source_path":"/s.jsonl","cwd":"/repo","last_at":"now","message_count":1}]`), nil
+	}
+	paneEnv = func(pane string) map[string]string {
+		if pane != "w1:p5" {
+			return nil
+		}
+		return map[string]string{"PATH": "/opt/bin:/usr/bin", "CLAUDE_CONFIG_DIR": "/profiles/work"}
+	}
+	t.Cleanup(func() { runMemex, paneEnv = oldMemex, oldEnv })
+	a := agentInfo{PaneID: "w1:p5", Agent: "codex", AgentSession: agentSession{Source: "herdr:codex", Kind: "id", Value: codexSession}}
+	s, err := resolveAgentSession(context.Background(), withDefaults(config{}), a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := strings.Join(recapEnv(s), "\n")
+	if !strings.Contains(env, "PATH=/opt/bin:/usr/bin") || !strings.Contains(env, "CLAUDE_CONFIG_DIR=/profiles/work") {
+		t.Errorf("the summarizer's environment isn't the pane's: %+v", s)
+	}
+	if got := withDefaults(config{}).SummarizerModel; got != "haiku" {
+		t.Errorf("default summarizer model %q", got)
+	}
 }

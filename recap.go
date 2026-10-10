@@ -88,7 +88,7 @@ func fresh(r *recap, s claudeSession) bool {
 	if r == nil {
 		return false
 	}
-	if s.Agent != "" && s.Agent != "claude" {
+	if !claudes(s) {
 		return r.Source == s.Agent && r.Stamp != "" && r.Stamp == s.Stamp
 	}
 	size, mod := transcriptStamp(s.Transcript)
@@ -97,6 +97,10 @@ func fresh(r *recap, s claudeSession) bool {
 	}
 	return r.Size > 0 && size > r.Size && quietSince(s.Transcript, r.Size)
 }
+
+// claudes: the session is Claude's own, recapped by Claude itself, not one
+// read through Memex.
+func claudes(s claudeSession) bool { return s.Agent == "" || s.Agent == "claude" }
 
 // errNothingYet: the session has no conversation to recap.
 var errNothingYet = errors.New("nothing to recap yet")
@@ -133,7 +137,7 @@ func ensureRecap(ctx context.Context, cfg config, s claudeSession, title string,
 	}
 	// At the same time as the recap: both read the same cached conversation.
 	var suggested chan suggestion
-	if (c == nil || c.Title == "") && poorTitle(title, gitBranch(s.Cwd)) {
+	if claudes(s) && (c == nil || c.Title == "") && poorTitle(title, gitBranch(s.Cwd)) {
 		suggested = make(chan suggestion, 1)
 		go func() {
 			t, cost, err := suggestTitle(ctx, cfg, s, title)
@@ -255,7 +259,7 @@ func claudeBinary(cfg config, s claudeSession) string {
 }
 
 func runRecap(ctx context.Context, cfg config, s claudeSession) (recap, error) {
-	if s.Agent != "" && s.Agent != "claude" {
+	if !claudes(s) {
 		return runMemexRecap(ctx, cfg, s)
 	}
 	out, err := runCommand(ctx, cfg, s, recapArgs(s.ID))

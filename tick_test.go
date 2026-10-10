@@ -35,7 +35,7 @@ func TestTickSchedulesAgentsWaitingOnYou(t *testing.T) {
 		claudeAgent("w1:p4", "idle", 4),
 		{PaneID: "w1:p5", Agent: "codex", Status: "done", StateChangeSeq: 1, AgentSession: agentSession{Kind: "id", Value: "codex-session"}},
 	}, claudeSession{})
-	if err := tick(withDefaults(config{RecapAfterSeconds: 240})); err != nil {
+	if err := tick(withDefaults(config{RecapAfterSeconds: 240, MemexAgents: []string{"codex"}})); err != nil {
 		t.Fatal(err)
 	}
 	want := [][]string{

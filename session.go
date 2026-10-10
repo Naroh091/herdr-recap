@@ -9,19 +9,18 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // claudeSession is where an agent's conversation lives, and what
 // `claude --resume` needs to pick it up.
 type claudeSession struct {
-	ID           string
+	ID string
+	// Agent is whose session it is: "" or claude for Claude's own, else one
+	// read through Memex (memex.go), which says how current it is (Stamp:
+	// its last activity and message count) and how long (MessageCount).
 	Agent        string
 	Stamp        string
 	MessageCount int
-	// Deadline is the end of the whole lookup-and-recap operation. Memex
-	// resolution, lock acquisition, transcript paging, and summarization share it.
-	Deadline time.Time
 	// ConfigDir is the agent's CLAUDE_CONFIG_DIR, or ~/.claude. Profile
 	// switchers (clauth and the like) give each profile its own, so it's read
 	// from the agent's process rather than assumed.

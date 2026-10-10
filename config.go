@@ -16,11 +16,23 @@ type config struct {
 	RecapAfterSeconds int `json:"recap_after_seconds"`
 	// Claude is the claude binary recaps run with. Empty = the one the agent
 	// runs, or "claude" on PATH.
-	Claude             string   `json:"claude"`
-	Memex              string   `json:"memex"`
-	Summarizer         []string `json:"summarizer"`
-	SummarizerModel    string   `json:"summarizer_model"`
-	TranscriptMaxChars int      `json:"transcript_max_chars"`
+	Claude string `json:"claude"`
+	// MemexAgents names the other agents to recap, through Memex: any of
+	// codex, opencode, hermes. Empty = Claude only. It's for you to turn on:
+	// their conversations are read by Memex and sent to the summarizer, which
+	// by default is Claude, and each recap is a request of its own to pay for.
+	MemexAgents []string `json:"memex_agents"`
+	// Memex is the memex binary. Empty = "memex" on PATH.
+	Memex string `json:"memex"`
+	// Summarizer is the command that writes a Memex-read conversation's
+	// recap: the prompt on stdin, the recap alone on stdout. Empty = Claude
+	// Code's print mode, with SummarizerModel (empty = haiku: a recap is a
+	// small job, and this one has no prompt cache to reuse).
+	Summarizer      []string `json:"summarizer"`
+	SummarizerModel string   `json:"summarizer_model"`
+	// TranscriptMaxChars is the most of a conversation's end the summarizer
+	// is sent.
+	TranscriptMaxChars int `json:"transcript_max_chars"`
 	// TimeoutSeconds bounds one recap.
 	TimeoutSeconds int `json:"timeout_seconds"`
 	// Theme: "dark", "light", or empty to ask the terminal.
@@ -91,6 +103,9 @@ func withDefaults(cfg config) config {
 	cfg.Memex = expandHome(cfg.Memex)
 	if cfg.Memex == "" {
 		cfg.Memex = "memex"
+	}
+	if cfg.SummarizerModel == "" {
+		cfg.SummarizerModel = "haiku"
 	}
 	if cfg.TranscriptMaxChars <= 0 {
 		cfg.TranscriptMaxChars = 24000

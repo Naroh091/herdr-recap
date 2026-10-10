@@ -91,7 +91,7 @@ const (
 // memexRefreshEvery is how often a Memex-backed session is looked up again
 // while its status is unchanged: its row (and so its recap's stamp) moves as
 // Memex indexes more of the conversation, with no status change to notice.
-const memexRefreshEvery = 5 * time.Second
+const memexRefreshEvery = 15 * time.Second
 
 // maxReplyLines is as tall as the reply box grows before it scrolls.
 const maxReplyLines = 6
@@ -233,11 +233,6 @@ func (m model) resolve(a agentInfo) tea.Cmd {
 
 func (m model) recapCmd(pane string, s claudeSession, title string, force bool) tea.Cmd {
 	src, ctx, sem := m.src, m.ctx, m.sem
-	if force {
-		// A manual rewrite is a new operation, not part of the session lookup
-		// that originally populated this row.
-		s.Deadline = time.Time{}
-	}
 	return func() tea.Msg {
 		select {
 		case sem <- struct{}{}:
@@ -343,7 +338,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		again := e.again
 		e.again = false
 		if e.session != nil && e.session.ID == msg.session {
-			e.session.Deadline = time.Time{}
 			switch {
 			case errors.Is(msg.err, errNothingYet):
 				e.note = "Nothing to recap yet."
@@ -481,7 +475,7 @@ func (m *model) updateAgents(agents []agentInfo, workspaces []workspaceInfo) tea
 			src, pane, cwd := m.src, a.PaneID, a.Cwd
 			cmds = append(cmds, func() tea.Msg { return changesMsg{pane, at, src.changes(cwd)} })
 		}
-		if !recapCapable(a) {
+		if !m.src.capable(a) {
 			e.session, e.recap, e.note = nil, nil, "Recaps aren't available for this agent."
 			continue
 		}
@@ -555,8 +549,11 @@ func (m *model) startRecap(e *entry, force bool) tea.Cmd {
 
 // sessionNote says why an agent's session couldn't be found.
 func sessionNote(err error) string {
-	if errors.Is(err, errNotClaude) {
+	switch {
+	case errors.Is(err, errNotClaude):
 		return "Claude isn't running in this pane any more."
+	case errors.Is(err, errSessionNotIndexed):
+		return "Memex hasn't indexed its conversation yet."
 	}
 	return "Couldn't find its conversation: " + err.Error()
 }
@@ -839,6 +836,12 @@ func (m model) rename() (tea.Model, tea.Cmd) {
 		e.renaming = t
 		src, pane, s := m.src, e.agent.PaneID, *e.session
 		return m, func() tea.Msg { return renamedMsg{pane, t, false, src.rename(pane, s)} }
+	}
+	if e.agent.Agent != "claude" {
+		// A title is asked of the conversation itself, and given with
+		// Claude's /rename.
+		m.flash = "Titles are suggested for Claude agents."
+		return m, nil
 	}
 	if e.session == nil || e.session.Transcript == "" {
 		m.flash = "There's nothing to go by for a title yet."
@@ -1537,7 +1540,7 @@ func debugList(cfg config) error {
 	}
 	for _, a := range agents {
 		fmt.Printf("%s  %-8s %-7s %s\n", a.PaneID, a.Status, a.Agent, title(a))
-		if !recapCapable(a) {
+		if !src.capable(a) {
 			continue
 		}
 		s, err := src.session(context.Background(), a)

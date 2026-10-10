@@ -14,8 +14,8 @@ import (
 
 // waiting is a status that leaves an agent sitting until you come back to it:
 // finished and not yet looked at (done), or asking you something (blocked).
-func waiting(a agentInfo) bool {
-	return recapCapable(a) && (a.Status == "done" || a.Status == "blocked")
+func waiting(cfg config, a agentInfo) bool {
+	return recapCapable(cfg, a) && (a.Status == "done" || a.Status == "blocked")
 }
 
 // tick runs on every agent status change (and at startup). It only reads the
@@ -42,7 +42,7 @@ func tick(cfg config) error {
 				fmt.Fprintln(os.Stderr, "herdr-recap: renaming", a.PaneID+":", err)
 			}
 		}
-		if !waiting(a) {
+		if !waiting(cfg, a) {
 			continue
 		}
 		if err := schedule(cfg, a); err != nil {
@@ -143,7 +143,7 @@ func recapLater(ctx context.Context, cfg config, after time.Duration, seq int64,
 			now = &agents[i]
 		}
 	}
-	if now == nil || now.StateChangeSeq != seq || !waiting(*now) {
+	if now == nil || now.StateChangeSeq != seq || !waiting(cfg, *now) {
 		return nil
 	}
 	ctx, cancel := recapContext(ctx, cfg)

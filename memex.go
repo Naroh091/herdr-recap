@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -135,8 +136,29 @@ func supportedAgent(agent string) bool {
 	return false
 }
 
-func recapCapable(a agentInfo) bool {
-	return a.Agent == "claude" || (supportedAgent(a.Agent) && a.AgentSession.Kind == "id" && a.AgentSession.Value != "")
+// recapCapable: the agent's conversation can be recapped. Claude's always;
+// another's when you've named it in memex_agents and herdr knows its session.
+func recapCapable(cfg config, a agentInfo) bool {
+	if a.Agent == "claude" {
+		return true
+	}
+	return slices.Contains(cfg.MemexAgents, a.Agent) && supportedAgent(a.Agent) &&
+		a.AgentSession.Kind == "id" && a.AgentSession.Value != ""
+}
+
+// paneEnv is the environment of the agent in a pane: what a summarizer is
+// run with, as a Claude recap is with its agent's. A variable so tests can
+// stand one in.
+var paneEnv = func(paneID string) map[string]string {
+	if paneID == "" {
+		return nil
+	}
+	procs, err := paneProcesses(paneID)
+	if err != nil || len(procs) == 0 {
+		return nil
+	}
+	env, _ := processEnv(procs[len(procs)-1].PID)
+	return env
 }
 
 func resolveAgentSession(ctx context.Context, cfg config, a agentInfo) (claudeSession, error) {
@@ -179,7 +201,17 @@ func resolveAgentSession(ctx context.Context, cfg config, a agentInfo) (claudeSe
 	for _, row := range rows {
 		if row.Source == source && row.SessionID == a.AgentSession.Value && row.SourcePath != "" {
 			stamp := row.LastAt + "/" + strconv.Itoa(row.MessageCount)
-			return claudeSession{Agent: a.Agent, ID: row.SessionID, Cwd: row.Cwd, Transcript: row.SourcePath, Stamp: stamp, MessageCount: row.MessageCount}, nil
+			s := claudeSession{Agent: a.Agent, ID: row.SessionID, Cwd: row.Cwd, Transcript: row.SourcePath, Stamp: stamp, MessageCount: row.MessageCount}
+			// The summarizer runs as the agent's pane does: herdr's own PATH
+			// often has no claude on it, and a profile switcher's account
+			// is in the pane's CLAUDE_CONFIG_DIR.
+			if env := paneEnv(a.PaneID); env != nil {
+				s.Path, s.Binary = env["PATH"], agentBinary("claude", env)
+				if dir := env["CLAUDE_CONFIG_DIR"]; dir != "" {
+					s.ConfigDir, s.ConfigDirSet = dir, true
+				}
+			}
+			return s, nil
 		}
 	}
 	return claudeSession{}, errSessionNotIndexed
@@ -296,7 +328,9 @@ var runSummaryCommand = func(ctx context.Context, cfg config, s claudeSession, p
 		}
 		cmd = exec.CommandContext(ctx, claudeBinary(cfg, s), args...)
 	}
-	cmd.Dir, cmd.Env, cmd.Stdin = s.Cwd, recapEnv(s), strings.NewReader(prompt)
+	// Not in the agent's folder: Claude would load that project's settings,
+	// instructions and hooks for a job that has nothing to do with them.
+	cmd.Dir, cmd.Env, cmd.Stdin = os.TempDir(), recapEnv(s), strings.NewReader(prompt)
 	cmd.WaitDelay = 5 * time.Second
 	out, stderr, err := runBoundedCommand(cmd)
 	if err != nil {

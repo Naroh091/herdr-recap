@@ -470,6 +470,12 @@ func TestCtrlRAsksForATitleWhenNoneIsSuggested(t *testing.T) {
 	if e := m.entries["w3:p2"]; titled(e) || !strings.Contains(m.flash, "would keep the title it has") {
 		t.Errorf("flash %q", m.flash)
 	}
+	// Another agent's: titles are asked of Claude's own conversations.
+	m = selectPane(m, "w2:p3")
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	if cmd != nil || next.(model).flash != "Titles are suggested for Claude agents." {
+		t.Errorf("flash %q", next.(model).flash)
+	}
 	// Nothing said yet: nothing to go by.
 	m = selectPane(m, "w3:p4")
 	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
@@ -501,6 +507,8 @@ type flakySessionSource struct {
 	*demoSource
 	calls int
 }
+
+func (f *flakySessionSource) capable(agentInfo) bool { return true }
 
 func (f *flakySessionSource) session(context.Context, agentInfo) (claudeSession, error) {
 	f.calls++
@@ -535,6 +543,8 @@ type refreshingSessionSource struct {
 	*demoSource
 	calls int
 }
+
+func (r *refreshingSessionSource) capable(agentInfo) bool { return true }
 
 func (r *refreshingSessionSource) session(context.Context, agentInfo) (claudeSession, error) {
 	r.calls++

@@ -94,7 +94,8 @@ reply, so for those the popup says so, and `enter` takes you to answer it
 there.
 
 **Contents:** [Requirements](#requirements) · [Install](#install) ·
-[Keys](#keys) · [When recaps are written](#when-recaps-are-written) ·
+[Keys](#keys) · [Other agents](#other-agents) ·
+[When recaps are written](#when-recaps-are-written) ·
 [What it costs](#what-it-costs) · [Configuration](#configuration) ·
 [Privacy](#privacy) · [Troubleshooting](#troubleshooting) ·
 [How it works](#how-it-works) · [Development](#development)
@@ -104,11 +105,10 @@ there.
 - **herdr 0.9.0** or later.
 - **Claude Code** with `/recap` (2.1.x), signed in. Claude sessions keep their
   native `/recap` path.
-- **Memex 0.24.0** or later for Codex and OpenCode recaps. Hermes recaps
-  require [nicosuave/memex#220](https://github.com/nicosuave/memex/pull/220),
-  or a later Memex release containing it. Memex must have indexed the session.
-  Claude Code print mode summarizes the bounded Memex transcript by default;
-  `summarizer` can replace it.
+- Optional, for [other agents](#other-agents): **Memex 0.24.0** or later for
+  Codex and OpenCode recaps. Hermes recaps require
+  [nicosuave/memex#220](https://github.com/nicosuave/memex/pull/220), or a
+  later Memex release containing it.
 - **Linux** or **macOS**, on arm64 or x86-64.
 
 ## Install
@@ -187,11 +187,32 @@ the prompt cache, so that costs several times what it does alongside a recap.
 A rename doesn't put a recap out of date: only something said in the
 conversation does.
 
+## Other agents
+
+Recaps are Claude's until you ask for more. Codex, OpenCode and Hermes can
+be recapped through [Memex](https://github.com/nicosuave/memex), which reads
+their sessions. Name the ones you want in `config.json`:
+
+```json
+{ "memex_agents": ["codex", "opencode"] }
+```
+
+It's yours to turn on because it changes two things. The conversation
+leaves the agent that had it: Memex reads the end of it, and the user and
+assistant text goes to a summarizer, by default Claude Code (`haiku`) under
+the account of the agent's pane. And every recap is a request of its own,
+with no prompt cache to reuse.
+
+Memex has to have indexed the session; a row whose session it hasn't yet
+says so, and is looked up again while the popup is open. An agent you
+haven't named, or whose session herdr doesn't know, says *Recaps aren't
+available for this agent.* Titles are suggested for Claude agents only.
+
 ## When recaps are written
 
-Soon after a turn ends. When a supported agent -- Claude, Codex, OpenCode, or
-Hermes -- finishes (done) or stops to ask you something (blocked), herdr tells
-the plugin, which waits
+Soon after a turn ends. When an agent that's recapped (Claude, and any
+[others](#other-agents) you've named) finishes (done) or stops to ask you
+something (blocked), herdr tells the plugin, which waits
 `recap_after_seconds` (3 minutes). If by then you still haven't looked at the
 agent, its recap is written; if you have (done turns to idle) or you answered
 it, nothing is spent. So the agents you're working with cost nothing, and the
@@ -213,9 +234,10 @@ lifetime when that reuse matters.
 
 Codex, OpenCode, and Hermes recaps do not reuse the agent's session cache.
 Memex reads a bounded recent transcript, then the configured summarizer handles
-it as a fresh bounded request. Measured large examples with the default Claude
-summarizer cost about $0.27-$0.29 each. That is an example, not a universal
-price: cost varies with transcript length, model, provider, plan, and custom
+it as a fresh bounded request. Two large examples measured with Claude's
+default model cost about $0.27-$0.29 each; the summarizer now defaults to
+`haiku`, which hasn't been measured here and should cost a good deal less.
+Cost varies with transcript length, model, provider, plan, and custom
 `summarizer` configuration.
 
 At most one recap per agent each time you walk away from it: an agent
@@ -234,9 +256,10 @@ Optional: `config.json` in the plugin's config directory
 | --- | --- | --- |
 | `recap_after_seconds` | `180` | How long an agent waits on you, unlooked at, before its recap is written |
 | `claude` | the agent's own | Claude Code binary for native Claude recaps and the default non-Claude summarizer |
+| `memex_agents` | none | The [other agents](#other-agents) to recap through Memex: any of `"codex"`, `"opencode"`, `"hermes"` |
 | `memex` | `"memex"` | Memex binary used to resolve and read Codex, OpenCode, and Hermes sessions |
 | `transcript_max_chars` | `24000` | Maximum recent user/assistant transcript characters sent to the summarizer |
-| `summarizer_model` | Claude default | Optional model passed to the default Claude print-mode summarizer |
+| `summarizer_model` | `"haiku"` | Model passed to the default Claude print-mode summarizer |
 | `summarizer` | Claude print mode | Optional command argv array, for example `["my-summarizer", "--brief"]`; it reads the prompt on stdin and must print only recap text |
 | `timeout_seconds` | `120` | The longest one whole recap may take, covering the Memex lookup, every transcript page and the summarizer together |
 | `theme` | ask the terminal | `"dark"` or `"light"` background |
@@ -279,7 +302,9 @@ state in the state's colour, the checks and the review in theirs.
 ## Privacy
 
 Claude recaps are made by the same Claude Code, account and settings the agent
-uses, on its own conversation. Non-Claude recaps read a bounded page through
+uses, on its own conversation, so nothing goes anywhere it hadn't already.
+Other agents are recapped only if you name them in `memex_agents`. Those
+recaps read a bounded page through
 Memex and send only user/assistant text to the configured summarizer, as a
 JSON string in a JSON object the summarizer is told to treat as data, so a
 transcript can't close its own delimiter and give the summarizer instructions.
@@ -293,7 +318,9 @@ A native Claude recap is a fork of the conversation that is never saved: the
 agent's own session isn't written to, and it doesn't show up in
 `claude --resume`. It does run with your Claude Code settings, so your own hooks
 (a notification on stop, say) run for it too. A default non-Claude recap is a
-separate print-mode Claude request, also with session persistence disabled.
+separate print-mode Claude request, also with session persistence disabled,
+run outside the agent's folder so that project's Claude settings and hooks
+don't come into it.
 
 ## Troubleshooting
 

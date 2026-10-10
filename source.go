@@ -10,6 +10,8 @@ type source interface {
 	// agents is every agent herdr knows, with its workspaces' names in
 	// sidebar order.
 	agents() ([]agentInfo, []workspaceInfo, error)
+	// capable: the agent's conversation can be recapped.
+	capable(a agentInfo) bool
 	// session finds the coding agent session in a pane.
 	session(context.Context, agentInfo) (claudeSession, error)
 	// cached is the session's cached recap, if any, and whether it still
@@ -49,10 +51,7 @@ func (l liveSource) session(ctx context.Context, a agentInfo) (claudeSession, er
 	ctx, cancel := recapContext(ctx, l.cfg)
 	defer cancel()
 	s, err := resolveAgentSession(ctx, l.cfg, a)
-	if deadline, ok := ctx.Deadline(); ok {
-		s.Deadline = deadline
-	}
-	if err == nil && (s.Agent == "" || s.Agent == "claude") {
+	if err == nil && claudes(s) {
 		s.Meta = readMeta(s.Transcript)
 	}
 	return s, err
@@ -64,11 +63,6 @@ func (liveSource) cached(s claudeSession) (*recap, bool) {
 }
 
 func (l liveSource) recap(ctx context.Context, s claudeSession, title string, force bool) (recap, error) {
-	if !s.Deadline.IsZero() {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithDeadline(ctx, s.Deadline)
-		defer cancel()
-	}
 	r, _, err := ensureRecap(ctx, l.cfg, s, title, force)
 	return r, err
 }
@@ -90,3 +84,5 @@ func (l liveSource) suggest(ctx context.Context, s claudeSession, title string) 
 func (liveSource) rename(paneID string, s claudeSession) error { return askRename(paneID, s.ID) }
 
 func (liveSource) give(paneID string, s claudeSession) error { return giveTitle(paneID, s.ID) }
+
+func (l liveSource) capable(a agentInfo) bool { return recapCapable(l.cfg, a) }

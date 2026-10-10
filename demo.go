@@ -249,3 +249,6 @@ func (d *demoSource) settled(s claudeSession) error {
 	d.recaps[s.ID] = r
 	return nil
 }
+
+// capable: the demo's recaps are its Claude agents'.
+func (d *demoSource) capable(a agentInfo) bool { return a.Agent == "claude" }
