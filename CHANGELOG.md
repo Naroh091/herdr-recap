@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 - 2026-10-10
 
 - **The list is grouped by stage.** Under a heading with a count each: *Needs
   you*, *Finished*, *Needs fixing*, *Working*, *In review*, *In progress*,
