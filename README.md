@@ -34,7 +34,8 @@ Open it (`prefix+alt+r`) and read down. Each agent is a few lines:
 - **Status first, what needs you at the top.** herdr's own glyphs and colours:
   `◉` needs you, `◔` working, `●` done, `✓` idle. Within a stage, whatever
   has waited longest comes first, and the right side says for how long:
-  *waiting 2m*, *done 12m*, *working 18m*.
+  *waiting 2m*, *done 12m*, *working 18m*, *idle 2h*; just *for 3h* when
+  it's idle with a PR in review or merged.
 - **Grouped by where the work has got to.** Each group has a heading and a
   count, in the order of whose move it is: yours first, then the agent's,
   then a reviewer's.

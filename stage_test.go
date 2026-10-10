@@ -169,3 +169,18 @@ func TestTheTabsFitANarrowPopup(t *testing.T) {
 		t.Errorf("not shortened: %q", ansi.Strip(line))
 	}
 }
+
+func TestIdleIsSaidOnlyOfTheIdleStage(t *testing.T) {
+	m, _ := demoModel(t)
+	m.height = 50
+	v := ansi.Strip(m.View())
+	for _, want := range []string{"docs · idle 2h", "storefront · for 3h"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("view lacks %q:\n%s", want, v)
+		}
+	}
+	// The word finds the stage, not the agent in review that's idle too.
+	if got := paneOrder(typeText(m, "idle")); got != "w3:p2 w3:p4" {
+		t.Errorf("idle lists %s", got)
+	}
+}

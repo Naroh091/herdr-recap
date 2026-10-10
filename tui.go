@@ -458,7 +458,12 @@ func (m model) matches(e *entry) bool {
 	if len(words) == 0 || (m.replying && e.agent.PaneID == m.replyTo) {
 		return true
 	}
-	hay := []string{title(e.agent), e.agent.Agent, e.agent.Status, stageOf(e).label(), e.branch}
+	hay := []string{title(e.agent), e.agent.Agent, stageOf(e).label(), e.branch}
+	// Idle is a stage too: the word finds that stage's agents, not every
+	// agent that's idle with a PR in review or merged.
+	if e.agent.Status != "idle" {
+		hay = append(hay, e.agent.Status)
+	}
 	if e.agent.Status == "blocked" {
 		// As the header and the row put it.
 		hay = append(hay, "needs you", "waiting")
@@ -1074,6 +1079,8 @@ func (m model) inStateSince(e *entry) time.Time {
 }
 
 // inState is the status and how long it's lasted: "waiting 3m", "done 25m".
+// An idle agent whose PR gives it another stage (in review, merged) is just
+// "for 3h": idle is the stage of the ones with no PR out.
 func (m model) inState(e *entry) string {
 	since := m.inStateSince(e)
 	if since.IsZero() {
@@ -1082,6 +1089,9 @@ func (m model) inState(e *entry) string {
 	label := map[string]string{"blocked": "waiting", "working": "working", "done": "done", "idle": "idle"}[e.agent.Status]
 	if label == "" {
 		return ""
+	}
+	if e.agent.Status == "idle" && stageOf(e) != stageIdle {
+		label = "for"
 	}
 	return label + " " + duration(m.now().Sub(since))
 }

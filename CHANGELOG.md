@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2 - 2026-10-10
+
+- **Idle is said only of the Idle stage.** An idle agent whose PR puts it in
+  *In review*, *Needs fixing* or *Merged* says *for 3h* on the right, not
+  *idle 3h*, and typing `idle` lists the Idle stage alone.
+
 ## 0.4.1 - 2026-10-10
 
 - **Two stages renamed.** *Finished* is *Done*, herdr's own word for it and
