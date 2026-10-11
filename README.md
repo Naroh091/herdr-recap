@@ -6,6 +6,29 @@ from without leaving the list.
 
 ![The popup on the demo's agents, grouped by stage under tabs: one that needs you, one done, two idle, two working, one in review](docs/images/agents.png)
 
+## Works with the other herdr plugins
+
+This is one of three plugins that are useful alone and better together.
+Install [herdr-github](https://github.com/mrolafsson/herdr-github) or [herdr-linear](https://github.com/mrolafsson/herdr-linear) alongside it and they find each other:
+there is nothing to configure.
+
+| Plugin | What it adds to the others |
+| --- | --- |
+| **[herdr-recap](https://github.com/mrolafsson/herdr-recap)** (this one) | Every agent in one list. An agent's pull request and its Linear issue are links there: a click, or `ctrl+g` / `ctrl+l`, opens it in the plugin it belongs to. |
+| [herdr-github](https://github.com/mrolafsson/herdr-github) | Tags every space and agent with its branch's pull request (`#482 ✓ approved`), which Recap shows and groups its agents by. Opens straight on an agent's PR when Recap asks. |
+| [herdr-linear](https://github.com/mrolafsson/herdr-linear) | Tags every space and agent with the Linear issue its branch is named for (`ENG-142 In Progress`), which Recap shows. Opens straight on that issue when Recap asks. |
+
+- **Auto-discovery.** Each plugin asks herdr which others are installed and
+  enabled. A link only appears when the plugin behind it is there; without
+  it the same text is shown, as text, and its key is left out.
+- **Clickable, and there and back.** herdr shows one popup at a time, so
+  following a link turns the open popup into the other plugin's, in place and
+  without a flicker, and `esc` there brings you back to where you were.
+- **Shared look.** A title, a branch, a pull request and a key are
+  drawn the same in all three, in herdr's theme colours.
+
+See [With the GitHub and Linear plugins](#with-the-github-and-linear-plugins) for the keys and the convention behind it.
+
 ## Why
 
 One agent is a conversation. Five are a job. Each works in its own pane, on
@@ -146,6 +169,8 @@ agents: no Claude calls, safe to screenshot.
 | `tab` | reply to that agent: type, then `enter` to send, `esc` to drop it; `alt+enter` or `ctrl+j` for a new line |
 | `ctrl+r` | rename that agent to the title suggested under its own; with none suggested, ask for one |
 | `ctrl+x` | ignore the suggested title: it isn't offered again |
+| `ctrl+g`, click on the PR | open that agent's pull request in the GitHub plugin's popup; `esc` there comes back here |
+| `ctrl+l`, click on the issue | open that agent's Linear issue in the Linear plugin's popup; `esc` there comes back here |
 | `←` / `→` | the stage before / after, round the ends; a click on a tab shows it |
 | `esc` | clear the filter, then back to *All*, then close |
 
@@ -182,6 +207,29 @@ the prompt cache, so that costs several times what it does alongside a recap.
 
 A rename doesn't put a recap out of date: only something said in the
 conversation does.
+
+## With the GitHub and Linear plugins
+
+Recap finds [herdr-github](https://github.com/mrolafsson/herdr-github) and
+[herdr-linear](https://github.com/mrolafsson/herdr-linear) by itself when
+they're installed and enabled: nothing to set up.
+
+- **A pull request** (`#431 ✓ approved`, from herdr-github's labels) is
+  underlined. A click on it, or `ctrl+g`, opens it in the GitHub popup.
+- **A Linear issue** (`ENG-142 In Progress`, from herdr-linear's labels: the
+  issue the agent's branch is named for) is underlined. A click on it, or
+  `ctrl+l`, opens it in the Linear popup.
+
+herdr shows one popup at a time, so the popup that's open becomes the other
+plugin's, in place (it keeps Recap's size and title), and `esc` there brings
+Recap back on the agent you left. Without those plugins
+the same text is there, as text.
+
+The convention is small, and any plugin can use it. A popup is opened with
+`HERDR_POPUP_RETURN` in its environment: the popup to open again when it's
+closed, as JSON in the shape of herdr's `plugin.pane.open`
+(`{"plugin_id", "entrypoint", "width", "height", "env"}`). Recap opens on a
+pane when `HERDR_RECAP_PANE` names one.
 
 ## When recaps are written
 

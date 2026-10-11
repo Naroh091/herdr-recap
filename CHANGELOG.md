@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.2 - 2026-10-11
+
+- **Pull requests and Linear issues open in their plugins.** With
+  herdr-github installed, an agent's pull request is underlined: a click on
+  it, or `ctrl+g`, opens it in the GitHub popup. With herdr-linear, the same
+  for its Linear issue (`ctrl+l`), which is now shown as one piece with its
+  status (`ENG-142 In Progress`). `esc` there comes back to Recap, on the
+  agent you left. The plugins are found by themselves; without them nothing
+  changes.
+
 ## 0.5.1 - 2026-10-11
 
 - **A recap runs the width of the popup**, where it stopped at 80 columns:

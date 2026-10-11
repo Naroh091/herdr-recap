@@ -201,9 +201,23 @@ func prNumber(number int, state string, draft bool) string {
 // approved", or several: "#12 draft ✓ #9 ● +2") is drawn as the GitHub
 // plugin draws a PR: the number and its state in the state's colour, its
 // checks and its review in theirs. Anything else is a token.
-func tokenText(v string) string {
+func tokenText(v string) string { return tokenLink(v, false) }
+
+// issueText is a Linear issue as herdr-linear reports it: its identifier,
+// underlined when a click on it goes somewhere, and its status.
+func issueText(id, state string, linked bool) string {
+	out := styleToken.Underline(linked).Render(id)
+	if state = strings.TrimSpace(state); state != "" {
+		out += " " + styleDim.Render(shorten(state, 20))
+	}
+	return out
+}
+
+// tokenLink is tokenText with, when linked, its numbers underlined: a click
+// on it goes somewhere.
+func tokenLink(v string, linked bool) string {
 	if len(v) < 2 || v[0] != '#' || v[1] < '0' || v[1] > '9' {
-		return styleToken.Render(v)
+		return styleToken.Underline(linked).Render(v)
 	}
 	var out []string
 	for i, pr := range strings.Split(v, " #") {
@@ -232,7 +246,7 @@ func tokenText(v string) string {
 			case strings.HasPrefix(word, "+"):
 				style = styleDim // "+2": more of them, not shown
 			}
-			out = append(out, style.Render(word))
+			out = append(out, style.Underline(linked && strings.HasPrefix(word, "#")).Render(word))
 		}
 	}
 	return strings.Join(out, " ")

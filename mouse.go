@@ -74,6 +74,19 @@ func (m model) handleMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 				return m.ignore()
 			}
 		}
+		// Its pull request or its issue, on the last line: over to that plugin.
+		if e := m.selected(); row == m.entryHeight(i)-2 {
+			var meta *sessionMeta
+			if e.session != nil {
+				meta = &e.session.Meta
+			}
+			_, spans := m.detailLine(e, meta)
+			for _, sp := range spans {
+				if ev.X >= sp.x0 && ev.X < sp.x1 {
+					return m.openLink(sp.plugin)
+				}
+			}
+		}
 		return m.activate()
 	}
 	return m, nil

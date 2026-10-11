@@ -29,6 +29,7 @@ const usage = `herdr-recap — what each of your agents was doing, in herdr
   recap --after S --seq N PANE
                    (internal) wait S seconds, then recap PANE if its status is
                    still the one numbered N
+  handoff JSON     (internal) open another plugin's popup once this one closes
   list             what the popup would show, as text: agents, sessions, recaps
 `
 
@@ -65,9 +66,17 @@ func run(ctx context.Context, args []string) error {
 		return runAction(args[1])
 	case "picker":
 		demo := os.Getenv("HERDR_RECAP_DEMO") == "1" || (len(args) > 1 && args[1] == "--demo")
-		return runPicker(ctx, cfg, demo)
+		if err := runPicker(ctx, cfg, demo); err != nil {
+			return err
+		}
+		return finishSwap()
 	case "tick":
 		return tick(cfg)
+	case "handoff":
+		if len(args) < 2 {
+			return errors.New("handoff needs a popup")
+		}
+		return runHandoff(args[1])
 	case "recap":
 		return runRecapCommand(ctx, cfg, args[1:])
 	case "list":
@@ -78,6 +87,9 @@ func run(ctx context.Context, args []string) error {
 	}
 }
 
+// The popup's size, as herdr-plugin.toml has it.
+const popupWidth, popupHeight = "80%", "75%"
+
 func runAction(name string) error {
 	switch name {
 	case "open", "demo":
@@ -85,7 +97,7 @@ func runAction(name string) error {
 		if name == "demo" {
 			env["HERDR_RECAP_DEMO"] = "1"
 		}
-		err := openPopup("picker", "80%", "75%", env)
+		err := openPopup("picker", popupWidth, popupHeight, env)
 		if isHerdrCode(err, "ui_busy") {
 			// herdr shows one popup at a time, open while its command runs.
 			// If it's ours, left open (on another client, say, where you
@@ -95,7 +107,7 @@ func runAction(name string) error {
 				notify("Recap", "Another popup is open: close it (esc) and try again.")
 				return err
 			}
-			err = openPopup("picker", "80%", "75%", env)
+			err = openPopup("picker", popupWidth, popupHeight, env)
 		}
 		if err != nil {
 			notify("Recap", "Couldn't open the popup: "+err.Error())
