@@ -206,6 +206,17 @@ func (d *demoSource) changes(dir string) gitChanges {
 
 func (d *demoSource) prompt(string, string) error { return nil }
 
+// The demo has herdr-github and herdr-linear, so its pull requests and
+// issues look as they would.
+func (d *demoSource) plugins() map[string]popupRef {
+	return map[string]popupRef{
+		githubPlugin: {PluginID: githubPlugin, Entrypoint: "picker"},
+		linearPlugin: {PluginID: linearPlugin, Entrypoint: "picker"},
+	}
+}
+
+func (d *demoSource) open(popupRef) error { return errDemo }
+
 func (d *demoSource) rename(_ string, s claudeSession) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()

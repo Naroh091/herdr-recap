@@ -35,6 +35,10 @@ type source interface {
 	// settled notes that the session's suggested title was taken or turned
 	// down: it isn't offered again.
 	settled(s claudeSession) error
+	// plugins are the other plugins a row can link to, and open closes this
+	// popup for one of theirs.
+	plugins() map[string]popupRef
+	open(popupRef) error
 }
 
 type liveSource struct{ cfg config }
@@ -86,3 +90,7 @@ func (liveSource) rename(paneID string, s claudeSession) error { return askRenam
 func (liveSource) give(paneID string, s claudeSession) error { return giveTitle(paneID, s.ID) }
 
 func (l liveSource) capable(a agentInfo) bool { return recapCapable(l.cfg, a) }
+
+func (liveSource) plugins() map[string]popupRef { return siblings() }
+
+func (liveSource) open(p popupRef) error { return handOver(p) }

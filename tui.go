@@ -50,6 +50,11 @@ type recapMsg struct {
 
 type focusedMsg struct{ err error }
 
+// pluginsMsg is the other plugins installed, and openedMsg that this popup
+// is to close for one of theirs.
+type pluginsMsg map[string]popupRef
+type openedMsg struct{ err error }
+
 // changesMsg is git's answer about an agent's worktree, read at `at`.
 type changesMsg struct {
 	pane, at string
@@ -164,6 +169,9 @@ type model struct {
 
 	mouseX, mouseY int // last pointer position; -1 until the mouse moves
 
+	links   map[string]popupRef // the other plugins a row can link to
+	startOn string              // the pane to open on: where another plugin's popup was opened from
+
 	// A reply being typed to the selected agent (r), sent with agent.prompt.
 	replying  bool
 	replyTo   string // its pane
@@ -208,7 +216,8 @@ func newModel(ctx context.Context, src source) model {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(m.spin.Tick, m.loadAgents())
+	src := m.src
+	return tea.Batch(m.spin.Tick, m.loadAgents(), func() tea.Msg { return pluginsMsg(src.plugins()) })
 }
 
 func (m model) loadAgents() tea.Cmd {
@@ -431,6 +440,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = "Couldn't rename " + shorten(title(e.agent), 40) + ": " + msg.err.Error()
 		return m, nil
 
+	case pluginsMsg:
+		m.links = msg
+		return m, nil
+
+	case openedMsg:
+		if errors.Is(msg.err, errDemo) {
+			m.flash = "In the demo that's as far as it goes: the pull requests are made up."
+			return m, nil
+		}
+		if msg.err != nil {
+			m.err = "Couldn't open it: " + msg.err.Error()
+			return m, nil
+		}
+		return m, tea.Quit
+
 	case focusedMsg:
 		if errors.Is(msg.err, errDemo) {
 			m.flash = "In the demo that's as far as it goes: the agents are made up."
@@ -456,6 +480,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // again (it may be a new conversation, and its recap out of date).
 func (m *model) updateAgents(agents []agentInfo, workspaces []workspaceInfo) tea.Cmd {
 	selected := m.selectedPane()
+	if !m.loaded && m.startOn != "" {
+		selected = m.startOn
+	}
 	m.loaded, m.workspaces = true, workspaces
 	var cmds []tea.Cmd
 	seen := map[string]bool{}
@@ -701,6 +728,11 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.showStage(stageAll)
 			return m, nil
 		}
+		// Opened from another plugin's popup: back to it.
+		if back, ok := cameFrom(); ok && m.startOn == "" {
+			src := m.src
+			return m, func() tea.Msg { return openedMsg{src.open(back)} }
+		}
 		return m, tea.Quit
 	case "tab":
 		return m.startReply()
@@ -734,6 +766,10 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.rename()
 	case "ctrl+x":
 		return m.ignore()
+	case "ctrl+g":
+		return m.openLink(githubPlugin)
+	case "ctrl+l":
+		return m.openLink(linearPlugin)
 	}
 
 	// Anything else edits the filter.
@@ -814,6 +850,56 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 	}
 	src, pane := m.src, e.agent.PaneID
 	return m, func() tea.Msg { return focusedMsg{src.focus(pane)} }
+}
+
+// linkToken is the token of an agent's that a plugin's popup opens on, if
+// the agent has one: its pull request as herdr-github reports it, its issue
+// as herdr-linear does.
+func linkToken(a agentInfo, plugin string) string {
+	names := []string{"prs", "pr"}
+	if plugin == linearPlugin {
+		names = []string{"issue"}
+	}
+	for _, k := range names {
+		if strings.TrimSpace(a.Tokens[k]) != "" {
+			return k
+		}
+	}
+	return ""
+}
+
+// linked: the agent's pull request (or issue) can be opened, in the popup of
+// the plugin that reported it.
+func (m model) linked(e *entry, plugin string) bool {
+	_, ok := m.links[plugin]
+	return ok && e != nil && linkToken(e.agent, plugin) != ""
+}
+
+// openLink closes this popup for another plugin's, on the selected agent's
+// pull request or issue. It comes back here when that one's closed.
+func (m model) openLink(plugin string) (tea.Model, tea.Cmd) {
+	e := m.selected()
+	if e == nil {
+		return m, nil
+	}
+	what, name := "pull request", "GitHub"
+	if plugin == linearPlugin {
+		what, name = "Linear issue", "Linear"
+	}
+	to, ok := m.links[plugin]
+	switch {
+	case linkToken(e.agent, plugin) == "":
+		m.flash = "This agent has no " + what + "."
+		return m, nil
+	case !ok:
+		m.flash = "That opens in the " + name + " plugin (" + plugin + "), which isn't installed."
+		return m, nil
+	}
+	src, ref := m.src, githubFor(to, e.agent)
+	if plugin == linearPlugin {
+		ref = linearFor(to, e.agent)
+	}
+	return m, func() tea.Msg { return openedMsg{src.open(ref)} }
 }
 
 // suggestion is the better title on offer for an agent: the one written
@@ -1272,7 +1358,19 @@ func (m model) suggestionLine(e *entry) (line string, rename, ignore [2]int) {
 // uncommitted and unpushed work, task progress, the pane's tokens, and how
 // current the recap is. Model and mode are the selected row's, in about.
 func (m model) details(e *entry, meta *sessionMeta) []string {
-	var info []string
+	info, _ := m.detailLine(e, meta)
+	return info
+}
+
+// linkSpan is the cells of a row's line that open another plugin's popup.
+type linkSpan struct {
+	plugin string
+	x0, x1 int
+}
+
+// detailLine is details, and the cells its pull request and its issue are
+// on, where they can be opened: the pieces are joined by " · ", three cells in.
+func (m model) detailLine(e *entry, meta *sessionMeta) (info []string, spans []linkSpan) {
 	// The folder's branch, read at the last status change, is the live one;
 	// the transcript's is what it was at its last message.
 	branch := e.branch
@@ -1293,8 +1391,27 @@ func (m model) details(e *entry, meta *sessionMeta) []string {
 	if e.agent.Agent != "claude" && e.agent.Agent != "" {
 		info = append(info, styleModel.Render(e.agent.Agent))
 	}
-	for _, v := range tokenValues(e.agent.Tokens, m.tokens) {
-		info = append(info, tokenText(v))
+	for _, t := range shownTokens(e.agent.Tokens, m.tokens) {
+		plugin := ""
+		for _, p := range []string{githubPlugin, linearPlugin} {
+			if m.linked(e, p) && linkToken(e.agent, p) == t.name {
+				plugin = p
+			}
+		}
+		text := tokenLink(t.value, plugin != "")
+		if t.name == "issue" {
+			text = issueText(t.value, e.agent.Tokens["issue_state"], plugin != "")
+		}
+		if plugin != "" {
+			x0 := 3
+			for _, piece := range info {
+				x0 += lipgloss.Width(piece) + 3
+			}
+			if x1 := min(x0+lipgloss.Width(text), m.width-1); x1 > x0 {
+				spans = append(spans, linkSpan{plugin, x0, x1})
+			}
+		}
+		info = append(info, text)
 	}
 	switch {
 	case e.recap == nil || e.recap.Text == "":
@@ -1304,7 +1421,7 @@ func (m model) details(e *entry, meta *sessionMeta) []string {
 	case !e.current:
 		info = append(info, styleDim.Render("recap from "+ago(m.now(), e.recap.At)))
 	}
-	return info
+	return info, spans
 }
 
 // changesText is a worktree's work in progress: "4 files +120 −30 ↑1 ↓2",
@@ -1391,25 +1508,36 @@ func duration(d time.Duration) string {
 // its state and checks, and any others the agent opened) for pr and the pr_*
 // details, or else pr for the details.
 func tokenValues(tokens map[string]string, only []string) []string {
+	var vals []string
+	for _, t := range shownTokens(tokens, only) {
+		vals = append(vals, t.value)
+	}
+	return vals
+}
+
+// shownToken is one of them, with the name it's reported under.
+type shownToken struct{ name, value string }
+
+func shownTokens(tokens map[string]string, only []string) []shownToken {
 	var names []string
 	if len(only) > 0 {
 		names = only
 	} else {
-		pr, prs := tokens["pr"] != "", tokens["prs"] != ""
+		pr, prs, issue := tokens["pr"] != "", tokens["prs"] != "", tokens["issue"] != ""
 		for k := range tokens {
-			if (k == "pr" && prs) || (strings.HasPrefix(k, "pr_") && (pr || prs)) {
+			if (k == "pr" && prs) || (strings.HasPrefix(k, "pr_") && (pr || prs)) || (strings.HasPrefix(k, "issue_") && issue) {
 				continue
 			}
 			names = append(names, k)
 		}
 		sort.Strings(names)
 	}
-	var vals []string
+	var vals []shownToken
 	seen := map[string]bool{}
 	for _, k := range names {
 		if v := strings.TrimSpace(tokens[k]); v != "" && !seen[v] {
 			seen[v] = true
-			vals = append(vals, shorten(v, 30))
+			vals = append(vals, shownToken{k, shorten(v, 30)})
 		}
 	}
 	return vals
@@ -1507,6 +1635,12 @@ func (m model) footer() []hint {
 	} else {
 		hs = append(hs, hint{"^r suggest title", "ctrl+r", hintView})
 	}
+	if m.linked(m.selected(), githubPlugin) {
+		hs = append(hs, hint{"^g pull request", "ctrl+g", hintView})
+	}
+	if m.linked(m.selected(), linearPlugin) {
+		hs = append(hs, hint{"^l issue", "ctrl+l", hintView})
+	}
 	return append(hs, hint{"←→ stage", "right", hintView}, hint{esc, "esc", hintQuiet})
 }
 
@@ -1530,6 +1664,9 @@ func runPicker(ctx context.Context, cfg config, demo bool) error {
 	}
 	m := newModel(ctx, src)
 	m.tokens = cfg.Tokens
+	if !demo {
+		m.startOn = os.Getenv(selectEnv)
+	}
 	// WithContext: a SIGTERM (a newer open replacing this popup) ends it
 	// cleanly, restoring the terminal.
 	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion(), tea.WithContext(ctx)).Run()
