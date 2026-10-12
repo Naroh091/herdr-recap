@@ -176,24 +176,22 @@ func (m model) stageTabs() []stageTab {
 	return tabs
 }
 
-// tabBar is the popup's first line: its name, then the stages as tabs, each
-// in its colour with its count, the one shown as a pill. Too wide for the
-// popup, the name goes, then the labels shorten.
+// tabBar is the popup's first line: the stages as tabs, each in its colour
+// with its count, the one shown as a pill. Too wide for the popup, the
+// labels shorten.
 func (m model) tabBar() (string, []stageTab) {
 	tabs := m.stageTabs()
 	var line string
-	for _, form := range []struct{ name, short bool }{{true, false}, {false, false}, {false, true}} {
-		line = ""
-		if form.name {
-			line = styleHeader.Render(" Recap ") + " "
-		}
+	// No name before them: the popup's border has it.
+	for _, short := range []bool{false, true} {
+		line = " "
 		x := lipgloss.Width(line)
 		for i, t := range tabs {
 			label, style := t.stage.label(), t.stage.style()
 			if t.stage == stageAll {
 				label, style = "All", styleTabOn
 			}
-			if form.short {
+			if short {
 				label = t.stage.short()
 			}
 			n := strconv.Itoa(t.n)

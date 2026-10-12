@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1 - 2026-10-12
+
+- **"Recap" is no longer written before the tabs**: the popup's border
+  says it already.
+
 ## 0.6.0 - 2026-10-12
 
 Recaps for other agents. `agents` in `config.json` lists the ones recapped,

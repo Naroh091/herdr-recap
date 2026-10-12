@@ -98,7 +98,7 @@ func TestTheViewShowsStatusTitleAndRecap(t *testing.T) {
 	m.height = 50 // room for every agent and its stage's heading
 	v := ansi.Strip(m.View())
 	for _, want := range []string{
-		"Recap   All 7  Needs you 1  Done 1  Idle 2  Working 2  In review 1",
+		"All 7  Needs you 1  Done 1  Idle 2  Working 2  In review 1",
 		"Needs you 1", "Done 1", "Idle 2", "Working 2", "In review 1",
 		"◉ Move billing webhooks to v2 events", "billing · waiting 2m",
 		"billing/webhooks-v2 · 6 files +214 −58 ↑2 · 4/5 tasks · BIL-207 In Progress · #412",
