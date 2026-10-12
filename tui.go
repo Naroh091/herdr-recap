@@ -1408,9 +1408,9 @@ func (m model) foundLine() string {
 		return ""
 	}
 	if m.ranked() {
-		return styleDim.Render("  No row matches: found in these conversations, the best match first")
+		return styleDim.Render(" No row matches: found in these conversations, the best match first")
 	}
-	return styleDim.Render("  No row matches: found in these conversations")
+	return styleDim.Render(" No row matches: found in these conversations")
 }
 
 // markWords is a line in base, with the words in it (whatever their case)

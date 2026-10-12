@@ -285,6 +285,21 @@ type memexPageMarker struct {
 	NextOffset *int   `json:"next_offset"`
 }
 
+// spoken is how much of the records is what you or the agent said.
+func spoken(records []json.RawMessage) int {
+	n := 0
+	for _, item := range records {
+		var row memexPageRecord
+		if json.Unmarshal(item, &row) != nil {
+			continue
+		}
+		if role := strings.ToLower(row.Record.Role); role == "user" || role == "assistant" {
+			n += len([]rune(strings.TrimSpace(row.Record.Text)))
+		}
+	}
+	return n
+}
+
 func memexConversation(out []byte, maxChars int) (string, error) {
 	var rows []memexPageRecord
 	if err := json.Unmarshal(out, &rows); err != nil {
@@ -313,33 +328,74 @@ func memexConversation(out []byte, maxChars int) (string, error) {
 	return text, nil
 }
 
+// memexWindow is how many records are read at a time, going back from a
+// conversation's end, and memexCalls the most pages asked for in all: a page
+// holds as many records as fit in its characters, a few when they're tools'
+// output.
+const memexWindow, memexCalls = 100, 60
+
+// memexTranscript is the end of a conversation, as much as a recap reads.
+// It's read back from the end, a window of records at a time, until there's
+// that much of what was said: most records of an agent at work are its
+// tools' calls and output, so how far back that is can't be told from the
+// count. Whatever runs out first (the pages, the conversation), the end is
+// what's there.
 func memexTranscript(ctx context.Context, cfg config, s claudeSession) (string, error) {
-	offset := max(0, s.MessageCount-500)
-	var records []json.RawMessage
-	for range 20 {
-		out, err := runMemex(ctx, cfg, "session", s.ID, "--source-path", s.Transcript,
-			"--offset", strconv.Itoa(offset), "--limit", "500", "--max-chars", strconv.Itoa(cfg.TranscriptMaxChars*2),
-			"--format", "json", "--non-interactive", "--no-update-check")
-		if err != nil {
-			return "", fmt.Errorf("memex session: %w", err)
-		}
-		var page []json.RawMessage
-		if err := json.Unmarshal(out, &page); err != nil {
-			return "", fmt.Errorf("memex session: %w", err)
-		}
-		var next *int
-		for _, item := range page {
-			var marker memexPageMarker
-			if json.Unmarshal(item, &marker) == nil && marker.Type == "page" {
-				next = marker.NextOffset
-				continue
+	var records []json.RawMessage // from the window's start to the end
+	calls := 0
+	// read is the records from offset up to end (to the conversation's, if
+	// negative), over as many pages as that takes.
+	read := func(offset, end int) ([]json.RawMessage, error) {
+		var got []json.RawMessage
+		for calls < memexCalls && (end < 0 || offset < end) {
+			limit := 500
+			if end >= 0 {
+				limit = min(limit, end-offset)
 			}
-			records = append(records, item)
+			calls++
+			out, err := runMemex(ctx, cfg, "session", s.ID, "--source-path", s.Transcript,
+				"--offset", strconv.Itoa(offset), "--limit", strconv.Itoa(limit), "--max-chars", strconv.Itoa(cfg.TranscriptMaxChars*2),
+				"--format", "json", "--non-interactive", "--no-update-check")
+			if err != nil {
+				return nil, fmt.Errorf("memex session: %w", err)
+			}
+			var page []json.RawMessage
+			if err := json.Unmarshal(out, &page); err != nil {
+				return nil, fmt.Errorf("memex session: %w", err)
+			}
+			var next *int
+			for _, item := range page {
+				var marker memexPageMarker
+				if json.Unmarshal(item, &marker) == nil && marker.Type == "page" {
+					next = marker.NextOffset
+					continue
+				}
+				got = append(got, item)
+			}
+			if next == nil || *next <= offset {
+				break
+			}
+			offset = *next
 		}
-		if next == nil || *next <= offset {
+		return got, nil
+	}
+	start := max(0, s.MessageCount-memexWindow)
+	for end := -1; ; {
+		got, err := read(start, end)
+		if err != nil {
+			if len(records) == 0 {
+				return "", err
+			}
+			break // the end was read: that's what matters
+		}
+		if end >= 0 && len(got) < end-start {
+			break // the pages ran out inside the window: a gap, so not used
+		}
+		records = append(got, records...)
+		if start == 0 || calls >= memexCalls || ctx.Err() != nil || spoken(records) >= cfg.TranscriptMaxChars {
 			break
 		}
-		offset = *next
+		start, end = max(0, start-memexWindow), start
 	}
 	if len(records) == 0 {
 		return "", errNothingYet

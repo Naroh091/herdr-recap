@@ -51,6 +51,11 @@ func TestWriteDemoScreens(t *testing.T) {
 	reply = typeText(next.(model), "squash the fixup commits and open the PR as a draft")
 	save("reply", reply)
 
+	// Found by what was said: no row has the word.
+	search := m
+	search.height = 15
+	save("search", seekFor(t, search, "playwright"))
+
 	// Better titles: one on offer, one waiting for its agent to finish, and
 	// two already taken.
 	src := newDemoSource()

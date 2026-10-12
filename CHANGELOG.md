@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 - 2026-10-11
+## 0.6.0 - 2026-10-12
 
 Recaps for other agents. `agents` in `config.json` lists the ones recapped,
 `["claude", "codex"]` unless you say otherwise.
@@ -19,6 +19,12 @@ Recaps for other agents. `agents` in `config.json` lists the ones recapped,
   (`haiku` by default, or your own `summarizer` command). Sessions are
   matched by the exact ID herdr reports, and the transcript is passed as
   data, with no tools, so it can't instruct the summarizer.
+- **A long conversation read through Memex is recapped from its end.** It
+  was read forward from 500 records back, for at most 20 pages, which on an
+  agent that had run many tools stopped short of where it had got to. It's
+  now read back from the end until there's enough of what was said. Found
+  on the first run against a real Memex (0.27.2), which the lookup, the
+  read and the recap have now had.
 - **Better titles for Codex agents too**: asked for in a fork of its own,
   and given with Codex's `/rename`. Not for agents read through Memex.
 - **When no row matches the filter, the agents' conversations are searched

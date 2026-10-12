@@ -111,6 +111,8 @@ It's what you and the agent said that is searched, not what its tools read
 or printed, or every agent that opened a file would match that file's
 words. It takes three letters or more, and a moment's pause in the typing.
 
+![An agent found by a word from its conversation that no row has, with what was said there in place of its recap](docs/images/search.png)
+
 With [Memex](https://github.com/nicosuave/memex) installed, the agents it's
 found in are listed best match first, by the score Memex's search gives each
 conversation, rather than by stage. Nothing to set up: Recap finds Memex by
@@ -144,10 +146,11 @@ there.
 - **Claude Code** with `/recap` (2.1.x), signed in. Claude sessions keep their
   native `/recap` path.
 - Optional, for [other agents](#other-agents): **Codex** for its own recaps
-  (tried with 0.157), and **Memex 0.24.0** or later for OpenCode recaps.
-  Hermes recaps require
-  [nicosuave/memex#220](https://github.com/nicosuave/memex/pull/220), or a
-  later Memex release containing it.
+  (tried with 0.157), and **Memex 0.24.0** or later for OpenCode recaps
+  (tried with 0.27.2). Hermes recaps need a Memex that reads Hermes
+  sessions
+  ([nicosuave/memex#220](https://github.com/nicosuave/memex/pull/220)),
+  which 0.27.2 does.
 - **Linux** or **macOS**, on arm64 or x86-64.
 
 ## Install

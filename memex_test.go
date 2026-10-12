@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -429,5 +431,69 @@ func TestWithoutClaudeTheRecapSaysWhatToSet(t *testing.T) {
 	_, err := runMemexRecap(context.Background(), withDefaults(config{Claude: "/nowhere/claude-that-isnt-there"}), s)
 	if err == nil || !strings.Contains(err.Error(), "set summarizer in config.json") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// A conversation that's mostly tools' output: a page holds a few records,
+// so the end is a long way, in pages, from 500 records back.
+func TestMemexTranscriptIsReadBackFromItsEnd(t *testing.T) {
+	old := runMemex
+	t.Cleanup(func() { runMemex = old })
+	const total, perPage = 2000, 7
+	var offsets []int
+	runMemex = func(_ context.Context, _ config, args ...string) ([]byte, error) {
+		var offset, limit int
+		for i := 0; i+1 < len(args); i++ {
+			switch args[i] {
+			case "--offset":
+				offset, _ = strconv.Atoi(args[i+1])
+			case "--limit":
+				limit, _ = strconv.Atoi(args[i+1])
+			}
+		}
+		offsets = append(offsets, offset)
+		end := min(total, offset+min(limit, perPage))
+		var items []string
+		for i := offset; i < end; i++ {
+			role, text := "tool_result", strings.Repeat("x", 500)
+			if i%10 == 0 {
+				role, text = "assistant", fmt.Sprintf("said at %d. %s", i, strings.Repeat("words ", 20))
+			}
+			items = append(items, fmt.Sprintf(`{"record":{"role":%q,"text":%q}}`, role, text))
+		}
+		next := "null"
+		if end < total {
+			next = strconv.Itoa(end)
+		}
+		items = append(items, fmt.Sprintf(`{"type":"page","total":%d,"next_offset":%s}`, total, next))
+		return []byte("[" + strings.Join(items, ",") + "]"), nil
+	}
+	cfg := withDefaults(config{TranscriptMaxChars: 2000})
+	// Memex's count is a little behind what's there by now.
+	got, err := memexTranscript(context.Background(), cfg, claudeSession{ID: codexSession, Transcript: "/x", MessageCount: total - 12})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "said at 1990.") {
+		t.Errorf("the end isn't there: …%q", got[max(0, len(got)-200):])
+	}
+	// As far back as it takes for that much to have been said, in order.
+	for _, at := range []int{1900, 1950} {
+		if !strings.Contains(got, fmt.Sprintf("said at %d.", at)) {
+			t.Errorf("lacks what was said at %d", at)
+		}
+	}
+	if strings.Index(got, "said at 1900.") > strings.Index(got, "said at 1950.") {
+		t.Errorf("out of order")
+	}
+	if offsets[0] != total-12-memexWindow || slices.Min(offsets) != total-12-2*memexWindow || len(offsets) > memexCalls {
+		t.Errorf("%d pages, from %d, back to %d", len(offsets), offsets[0], slices.Min(offsets))
+	}
+	// And no further than the pages allowed, the end still there.
+	offsets = nil
+	cfg.TranscriptMaxChars = 1 << 20
+	got, err = memexTranscript(context.Background(), cfg, claudeSession{ID: codexSession, Transcript: "/x", MessageCount: total})
+	if err != nil || !strings.Contains(got, "said at 1990.") || len(offsets) > memexCalls {
+		t.Errorf("%d pages, err %v", len(offsets), err)
 	}
 }
