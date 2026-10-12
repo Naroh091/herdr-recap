@@ -1,10 +1,39 @@
 # herdr-recap
 
-Where every agent got to, in one [herdr](https://herdr.dev) popup: what
-needs you, what's done, what each one was doing, and a line to answer it
-from without leaving the list.
+**Come back to a bunch of agents and know in seconds which ones need you.**
+
+Starting a new agent is almost too easy. Coming back to a dozen or more and
+remembering what each one was doing is the pain. herdr-recap is a
+[herdr](https://herdr.dev) popup that tells you, per agent, where it got to
+and whose move it is.
 
 ![The popup on the demo's agents, grouped by stage under tabs: one that needs you, one done, two idle, two working, one in review](docs/images/agents.png)
+
+- **Recaps are written while you're away.** Claude Code's own `/recap`, or
+  the agent's equivalent, run in a throwaway fork, so your agent's
+  conversation doesn't get touched.
+- **Only when it's worth it.** A recap is written once an agent has sat
+  finished or blocked for a few minutes without you looking, while its
+  prompt cache is still warm.
+- **Grouped by whose move it is.** Needs you, Done, Needs fixing, Idle,
+  Working, In review and Merged, shown as tabs with counts.
+- **See what a blocked agent wants.** The pending question or command is
+  right on the row.
+- **Reply without leaving the popup.** Tab, type, enter; or enter or click
+  to jump straight to the agent.
+- **Full context at a glance.** Each row has the branch, uncommitted and
+  unpushed work, task progress, PR state, and how long it has been waiting.
+- **Type to filter** across titles, recaps, branches, stages and workspaces.
+- **Search built in.** When no row matches, the agents' conversations are
+  searched for what you typed, so you find the agent that said it. Uses
+  Memex to put the best match first, if it's installed.
+- **Want better titles?** Agents with no title, or a slug for one, get a
+  suggested name with their ticket key, applied with one keypress.
+- **Pull requests and Linear issues are links**, with herdr-github and
+  herdr-linear installed.
+- **It fits in.** Follows herdr's theme, works with the mouse.
+- **Works with Claude, Codex, OpenCode and Hermes** (the last two through
+  Memex). Linux and macOS.
 
 ## Works with the other herdr plugins
 
