@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -134,5 +137,93 @@ func TestWhatWasSaidIsShownAroundWhatMatched(t *testing.T) {
 	}
 	if got := searchTranscript(context.Background(), path, []string{"needle"}); got != "the needle after it" {
 		t.Errorf("%.80q", got)
+	}
+}
+
+// rankedSource is the demo with a Memex: it scores the sessions it's told to.
+type rankedSource struct {
+	*demoSource
+	scores map[string]float64 // by session ID
+}
+
+func (r *rankedSource) rank(_ context.Context, _ string, ids []string) map[string]float64 {
+	out := map[string]float64{}
+	for _, id := range ids {
+		if s, ok := r.scores[id]; ok {
+			out[id] = s
+		}
+	}
+	return out
+}
+
+func TestWithMemexWhatsFoundIsListedBestMatchFirst(t *testing.T) {
+	d := newDemoSource()
+	d.delay = 0
+	const flaky, notes = "0b3c9a51-5d7e-4f7a-9c35-1a2b3c4d5e02", "0b3c9a51-5d7e-4f7a-9c35-1a2b3c4d5e04"
+	src := &rankedSource{demoSource: d, scores: map[string]float64{flaky: 3.5, notes: 41}}
+	m := newModel(context.Background(), src)
+	m.width, m.height = 100, 40
+	m.now = func() time.Time { return d.started }
+	m = settle(t, m, m.loadAgents())
+	// Both said "there's": by stage the done one comes before the idle one.
+	m = seekFor(t, m, "there")
+	if got := paneOrder(m); got != "w3:p2 w1:p3" {
+		t.Fatalf("lists %q, scores %v", got, m.scores)
+	}
+	v := ansi.Strip(m.View())
+	if !strings.Contains(v, "the best match first") || strings.Contains(v, "Idle 1\n") {
+		t.Errorf("view:\n%s", v)
+	}
+	// No headings, and the mouse knows it.
+	if i, ok := m.entryAt(listTop); !ok || i != 0 {
+		t.Errorf("the first row isn't at the top of the list")
+	}
+	// Without scores (no Memex), by stage as ever.
+	src.scores = nil
+	m = press(m, "esc")
+	if m = seekFor(t, m, "there"); paneOrder(m) != "w1:p3 w3:p2" || m.ranked() {
+		t.Errorf("lists %q", paneOrder(m))
+	}
+}
+
+func TestMemexScoresTheSessionsWhatWasSaidIn(t *testing.T) {
+	oldRun, oldBinary := runMemex, memexBinary
+	t.Cleanup(func() { runMemex, memexBinary = oldRun, oldBinary })
+	const a, b = "0b3c9a51-5d7e-4f7a-9c35-1a2b3c4d5e02", "0b3c9a51-5d7e-4f7a-9c35-1a2b3c4d5e04"
+	var mu sync.Mutex
+	var calls []string
+	runMemex = func(_ context.Context, _ config, args ...string) ([]byte, error) {
+		mu.Lock()
+		calls = append(calls, strings.Join(args, " "))
+		mu.Unlock()
+		line := strings.Join(args, " ")
+		switch {
+		case strings.Contains(line, "--session "+a+" --role user"):
+			return []byte(`[{"score":12.5,"session_id":"` + a + `"}]`), nil
+		case strings.Contains(line, "--session "+a+" --role assistant"):
+			return []byte(`[{"score":30,"session_id":"` + a + `"}]`), nil
+		case strings.Contains(line, "--session "+b+" --role user"):
+			return nil, errors.New("Syntax Error")
+		}
+		return []byte(`[]`), nil
+	}
+	memexBinary = func(config) string { return "/bin/memex" }
+	got := rankSessions(context.Background(), config{Memex: "memex"}, `"rate-limit" (429)`, []string{a, b, "not an id; rm -rf"})
+	if len(got) != 1 || got[a] != 30 {
+		t.Errorf("scores %v", got)
+	}
+	if len(calls) != 4 {
+		t.Fatalf("calls: %q", calls)
+	}
+	for _, c := range calls {
+		if !strings.HasPrefix(c, "search --session ") || !strings.HasSuffix(c, "--non-interactive --no-update-check -- rate limit 429") {
+			t.Errorf("call %q", c)
+		}
+	}
+	// No Memex: nothing asked.
+	calls = nil
+	memexBinary = func(config) string { return "" }
+	if got := rankSessions(context.Background(), config{Memex: "memex"}, "rate limit", []string{a}); len(got) != 0 || len(calls) != 0 {
+		t.Errorf("without Memex: %v, %q", got, calls)
 	}
 }

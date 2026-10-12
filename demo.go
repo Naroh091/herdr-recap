@@ -92,7 +92,7 @@ var demoAgents = []demoAgent{
 			LastPrompt: "draft release notes for 2.4 from the merged PRs"},
 		active: -2 * time.Hour,
 		recap:  "Drafted the 2.4 release notes from the merged PRs and grouped them by area. Next, check the upgrade section with the platform team.",
-		said:   "I've put the one breaking change first in the upgrade section: the webhook signature header is renamed, and the old name stops working in 2.5.",
+		said:   "I've put the one breaking change first in the upgrade section: the webhook signature header is renamed, and the old name stops working in 2.5, so there's a note on sending both until then.",
 	},
 	{
 		agent:   agentInfo{PaneID: "w3:p4", Cwd: "/demo/w3-p4", WorkspaceID: "w3", Agent: "claude", Status: "idle", Title: "", Name: "scratch", StateChangeSeq: 1},
@@ -219,6 +219,9 @@ func (d *demoSource) search(_ context.Context, s claudeSession, words []string) 
 	}
 	return f.snippet()
 }
+
+// The demo has no Memex: what's found is listed in the usual order.
+func (d *demoSource) rank(context.Context, string, []string) map[string]float64 { return nil }
 
 // The demo has herdr-github and herdr-linear, so its pull requests and
 // issues look as they would.

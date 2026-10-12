@@ -111,6 +111,12 @@ It's what you and the agent said that is searched, not what its tools read
 or printed, or every agent that opened a file would match that file's
 words. It takes three letters or more, and a moment's pause in the typing.
 
+With [Memex](https://github.com/nicosuave/memex) installed, the agents it's
+found in are listed best match first, by the score Memex's search gives each
+conversation, rather than by stage. Nothing to set up: Recap finds Memex by
+itself. Who is listed is still decided by reading the conversations, which
+have what was said a moment ago; Memex's index may be a little behind.
+
 ## Reply from the list
 
 Most of what an agent needs from you is short: *yes, go ahead*, *push it*,

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -232,8 +233,32 @@ func resolveMemexSession(ctx context.Context, cfg config, a agentInfo) (claudeSe
 	return claudeSession{}, errSessionNotIndexed
 }
 
+// memexBinary is the Memex to run, or "" when there isn't one: the
+// configured one on PATH, or where its installers put it, since herdr's own
+// PATH often hasn't those.
+var memexBinary = func(cfg config) string {
+	if path, err := exec.LookPath(cfg.Memex); err == nil {
+		return path
+	}
+	if strings.ContainsRune(cfg.Memex, os.PathSeparator) {
+		return ""
+	}
+	home, _ := os.UserHomeDir()
+	for _, dir := range []string{filepath.Join(home, ".local", "bin"), filepath.Join(home, ".cargo", "bin"), "/opt/homebrew/bin", "/usr/local/bin"} {
+		path := filepath.Join(dir, cfg.Memex)
+		if fi, err := os.Stat(path); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
+			return path
+		}
+	}
+	return ""
+}
+
 var runMemex = func(ctx context.Context, cfg config, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, cfg.Memex, args...)
+	binary := memexBinary(cfg)
+	if binary == "" {
+		binary = cfg.Memex // and the error says it isn't there
+	}
+	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.WaitDelay = 5 * time.Second
 	out, stderr, err := runBoundedCommand(cmd)
 	if err != nil {

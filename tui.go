@@ -60,6 +60,7 @@ type seekMsg struct {
 type foundMsg struct {
 	filter string
 	found  map[string]string
+	scores map[string]float64
 }
 
 // seekDelay is how long the filter is left alone before the conversations
@@ -195,7 +196,10 @@ type model struct {
 	// for it (search.go). The agents whose conversation has it, each with
 	// some of what was said; foundFor is the filter they were found for,
 	// and seeking that a search is on its way.
+	// scores: how well each of them matches, by Memex's reckoning when
+	// it's installed. They're listed best first then, not by stage.
 	found    map[string]string
+	scores   map[string]float64
 	foundFor string
 	seeking  bool
 	seekSeq  int
@@ -487,7 +491,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // the filter has moved on, and another search with it
 		}
 		m.seeking = false
-		m.found, m.foundFor = msg.found, msg.filter
+		m.found, m.scores, m.foundFor = msg.found, msg.scores, msg.filter
 		m.sortEntries()
 		m.cursor, m.offset, m.picked = 0, 0, false
 		m.scrollTo()
@@ -658,8 +662,13 @@ func (m *model) sortEntries() {
 			m.order = append(m.order, p)
 		}
 	}
+	ranked := m.ranked()
 	sort.Slice(m.order, func(i, j int) bool {
 		a, b := m.entries[m.order[i]].agent, m.entries[m.order[j]].agent
+		// Found in the conversations, and scored: the best match first.
+		if sa, sb := m.scores[a.PaneID], m.scores[b.PaneID]; ranked && sa != sb {
+			return sa > sb
+		}
 		if ra, rb := stageOf(m.entries[m.order[i]]), stageOf(m.entries[m.order[j]]); ra != rb {
 			return ra < rb
 		}
@@ -734,7 +743,7 @@ func (m model) matches(e *entry) bool {
 // refilter lists what a changed filter matches, from the top.
 func (m *model) refilter() {
 	if m.filter.Value() != m.foundFor {
-		m.found, m.foundFor = nil, ""
+		m.found, m.scores, m.foundFor = nil, nil, ""
 	}
 	m.seeking = false
 	m.sortEntries()
@@ -785,8 +794,29 @@ func (m model) search(filter string) tea.Cmd {
 			}()
 		}
 		wg.Wait()
-		return foundMsg{filter, found}
+		// More than one: which is the likeliest, if there's a Memex to say.
+		var scores map[string]float64
+		if len(found) > 1 {
+			var ids []string
+			for pane := range found {
+				ids = append(ids, sessions[pane].ID)
+			}
+			byID := src.rank(ctx, filter, ids)
+			scores = map[string]float64{}
+			for pane := range found {
+				if score, ok := byID[sessions[pane].ID]; ok {
+					scores[pane] = score
+				}
+			}
+		}
+		return foundMsg{filter, found, scores}
 	}
+}
+
+// ranked is whether what's listed was found in the conversations and is in
+// order of how well it matches, rather than by stage.
+func (m model) ranked() bool {
+	return len(m.scores) > 0 && m.foundFor != "" && m.foundFor == m.filter.Value()
 }
 
 // foundIn is what an agent's conversation says of the filter, when it was
@@ -1376,6 +1406,9 @@ func (m model) view() string {
 func (m model) foundLine() string {
 	if len(m.order) == 0 || m.foundFor == "" || m.foundFor != m.filter.Value() || len(m.found) == 0 {
 		return ""
+	}
+	if m.ranked() {
+		return styleDim.Render("  No row matches: found in these conversations, the best match first")
 	}
 	return styleDim.Render("  No row matches: found in these conversations")
 }

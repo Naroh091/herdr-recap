@@ -38,6 +38,9 @@ type source interface {
 	// search is where the session's conversation says every one of words:
 	// some of what was said, or "" when it doesn't.
 	search(ctx context.Context, s claudeSession, words []string) string
+	// rank is how well each of the sessions (by ID) matches the filter, the
+	// higher the better: empty when there's nothing to say so (no Memex).
+	rank(ctx context.Context, filter string, ids []string) map[string]float64
 	// plugins are the other plugins a row can link to, and open closes this
 	// popup for one of theirs.
 	plugins() map[string]popupRef
@@ -96,6 +99,10 @@ func (l liveSource) capable(a agentInfo) bool { return recapCapable(l.cfg, a) }
 
 func (l liveSource) search(ctx context.Context, s claudeSession, words []string) string {
 	return searchSession(ctx, l.cfg, s, words)
+}
+
+func (l liveSource) rank(ctx context.Context, filter string, ids []string) map[string]float64 {
+	return rankSessions(ctx, l.cfg, filter, ids)
 }
 
 func (liveSource) plugins() map[string]popupRef { return siblings() }

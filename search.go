@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 )
 
@@ -221,4 +223,70 @@ func said(record any, see func(string)) {
 			}
 		}
 	}
+}
+
+// With Memex installed, the agents a filter is found in are listed best
+// match first, by the score its search gives each one's conversation. Who's
+// listed is still decided by reading the conversations, which says what was
+// said a moment ago; Memex's index may be behind that.
+
+// rankTimeout is how long Memex is given to score the conversations.
+const rankTimeout = 5 * time.Second
+
+// memexQuery is a filter as Memex's search takes it: its words, without the
+// punctuation its query syntax would read.
+func memexQuery(filter string) string {
+	return strings.Join(strings.FieldsFunc(filter, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
+	}), " ")
+}
+
+// rankSessions is Memex's score for the filter in each of the sessions: the
+// best of what you or the agent said there. Empty without Memex, or when it
+// can't say.
+func rankSessions(ctx context.Context, cfg config, filter string, ids []string) map[string]float64 {
+	query := memexQuery(filter)
+	if query == "" || len(ids) == 0 || memexBinary(cfg) == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, rankTimeout)
+	defer cancel()
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	scores := map[string]float64{}
+	room := make(chan struct{}, 4)
+	for _, id := range ids {
+		if !memexSessionIDPattern.MatchString(id) {
+			continue
+		}
+		for _, role := range []string{"user", "assistant"} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				room <- struct{}{}
+				defer func() { <-room }()
+				out, err := runMemex(ctx, cfg, "search", "--session", id, "--role", role, "--limit", "1",
+					"--format", "json", "--fields", "score,session_id", "--non-interactive", "--no-update-check", "--", query)
+				if err != nil {
+					return
+				}
+				var rows []struct {
+					Score     float64 `json:"score"`
+					SessionID string  `json:"session_id"`
+				}
+				if json.Unmarshal(out, &rows) != nil {
+					return
+				}
+				mu.Lock()
+				defer mu.Unlock()
+				for _, row := range rows {
+					if row.SessionID == id && row.Score > scores[id] {
+						scores[id] = row.Score
+					}
+				}
+			}()
+		}
+	}
+	wg.Wait()
+	return scores
 }

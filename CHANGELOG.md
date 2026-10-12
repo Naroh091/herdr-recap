@@ -26,7 +26,8 @@ Recaps for other agents. `agents` in `config.json` lists the ones recapped,
   there: for when you remember what an agent said but not which agent. It
   searches what you and the agent said, in Claude's and Codex's transcripts
   on your disk (and the recent page Memex gives for the others), not what
-  tools read or printed. Try it in the demo with `playwright`.
+  tools read or printed. Try it in the demo with `playwright`. With Memex
+  installed, they're listed best match first, by its search's score.
 
 ## 0.5.4 - 2026-10-12
 
