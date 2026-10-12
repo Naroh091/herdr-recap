@@ -22,6 +22,14 @@ Recaps for other agents. `agents` in `config.json` lists the ones recapped,
 - **Better titles for Codex agents too**: asked for in a fork of its own,
   and given with Codex's `/rename`. Not for agents read through Memex.
 
+## 0.5.4 - 2026-10-12
+
+- **An agent is found by a pull request it's done with.** Type a merged
+  PR's number and the agent that opened it is listed, even once it has
+  moved on to another branch. herdr-github 0.8.0 reports those PRs in a
+  token of their own (`prs_past`), which the filter searches and the row
+  doesn't show; name it in `tokens` in `config.json` if you want it shown.
+
 ## 0.5.3 - 2026-10-12
 
 - **The selection stays on the top row until you pick one.** It used to

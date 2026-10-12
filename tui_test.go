@@ -876,6 +876,26 @@ func TestTheFilterMatchesWhatARowShows(t *testing.T) {
 	}
 }
 
+// An agent is found by a PR it opened that's since merged (herdr-github's
+// prs_past), which its row doesn't show.
+func TestTheFilterFindsAnAgentByAPRItsDoneWith(t *testing.T) {
+	m, _ := demoModel(t)
+	m.entries["w1:p1"].agent.Tokens = map[string]string{"clauth": "me", pastPRs: "#1155 #1146"}
+	if got := paneOrder(typeText(m, "1155")); got != "w1:p1" {
+		t.Errorf("#1155 lists %q", got)
+	}
+	if view := ansi.Strip(m.View()); strings.Contains(view, "#1155") || strings.Contains(view, "#1146") {
+		t.Errorf("the PRs it's done with are on its row:\n%s", view)
+	}
+	if got := strings.Join(tokenValues(m.entries["w1:p1"].agent.Tokens, nil), " "); got != "me" {
+		t.Errorf("shown: %q", got)
+	}
+	// Named in config.json's tokens, it's shown like any other.
+	if got := strings.Join(tokenValues(m.entries["w1:p1"].agent.Tokens, []string{pastPRs}), " "); got != "#1155 #1146" {
+		t.Errorf("asked for: %q", got)
+	}
+}
+
 func TestInState(t *testing.T) {
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
 	m := model{now: func() time.Time { return now }}

@@ -673,7 +673,9 @@ func (m model) matches(e *entry) bool {
 	if e.recap != nil {
 		hay = append(hay, e.recap.Text, suggestion(e))
 	}
+	// Its merged and closed PRs find it too, though the row doesn't show them.
 	hay = append(hay, tokenValues(e.agent.Tokens, m.tokens)...)
+	hay = append(hay, e.agent.Tokens[pastPRs])
 	all := strings.ToLower(strings.Join(hay, " "))
 	for _, w := range words {
 		if !strings.Contains(all, w) {
@@ -1527,6 +1529,11 @@ func tokenValues(tokens map[string]string, only []string) []string {
 	return vals
 }
 
+// pastPRs is herdr-github's token for the PRs an agent opened that are since
+// merged or closed ("#1155 #1149"): to find the agent by, not to show, unless
+// config.json's tokens name it.
+const pastPRs = "prs_past"
+
 // shownToken is one of them, with the name it's reported under.
 type shownToken struct{ name, value string }
 
@@ -1537,7 +1544,7 @@ func shownTokens(tokens map[string]string, only []string) []shownToken {
 	} else {
 		pr, prs, issue := tokens["pr"] != "", tokens["prs"] != "", tokens["issue"] != ""
 		for k := range tokens {
-			if (k == "pr" && prs) || (strings.HasPrefix(k, "pr_") && (pr || prs)) || (strings.HasPrefix(k, "issue_") && issue) {
+			if (k == "pr" && prs) || (strings.HasPrefix(k, "pr_") && (pr || prs)) || (strings.HasPrefix(k, "issue_") && issue) || k == pastPRs {
 				continue
 			}
 			names = append(names, k)
