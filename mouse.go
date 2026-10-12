@@ -22,7 +22,7 @@ func (m model) handleMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 		// Hover highlights, like a launcher: the click then opens what you
 		// see. Not while replying: the reply is to the selected agent.
 		if i, ok := m.entryAt(ev.Y); ok && !m.replying && i != m.cursor {
-			m.cursor = i
+			m.cursor, m.picked = i, true
 			m.scrollTo() // selected, it grows: keep it all on screen
 		}
 		return m, nil
@@ -63,7 +63,7 @@ func (m model) handleMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	// A click in the list while replying would leave, losing the reply.
 	if i, row, ok := m.entryLineAt(ev.Y); ok && !m.replying {
-		m.cursor, m.flash = i, ""
+		m.cursor, m.picked, m.flash = i, true, ""
 		// The buttons after a suggested title.
 		if e := m.selected(); row == 1 && e.renaming == "" && suggestion(e) != "" {
 			_, rename, ignore := m.suggestionLine(e)

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.3 - 2026-10-12
+
+- **The selection stays on the top row until you pick one.** It used to
+  follow whichever agent was first when the popup opened, and drift down
+  the list as statuses came in and the order changed. Once you move, point
+  at or act on a row, it follows that agent as before.
+
 ## 0.5.2 - 2026-10-11
 
 - **Pull requests and Linear issues open in their plugins.** With
