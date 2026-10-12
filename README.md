@@ -102,6 +102,15 @@ status, space, branch, recap, what it's waiting for or a token. So `billing`
 finds the agents on billing, `needs you` the ones stopped on a question, and
 `dark working` the one still working on dark mode.
 
+**When no row matches, the conversations are searched.** You remember
+something an agent said, or that you asked it, but not which agent: type it,
+and if nothing in the list has it, Recap looks through every agent's
+conversation and lists the ones where it came up, with what was said there
+in place of the recap. Every word has to be somewhere in the conversation.
+It's what you and the agent said that is searched, not what its tools read
+or printed, or every agent that opened a file would match that file's
+words. It takes three letters or more, and a moment's pause in the typing.
+
 ## Reply from the list
 
 Most of what an agent needs from you is short: *yes, go ahead*, *push it*,
@@ -167,7 +176,7 @@ agents: no Claude calls, safe to screenshot.
 
 | Key | Does |
 | --- | --- |
-| typing | filter |
+| typing | filter; with no row matching, search the conversations |
 | `↑` `↓`, `ctrl+p` `ctrl+n` | move |
 | `pgup` / `pgdn`, `home` / `end` | page, first / last |
 | `enter`, click | go to that agent and close |
@@ -385,6 +394,11 @@ recap fails rather than filling memory. The
 default summarizer is a new, non-persistent Claude print-mode request and has
 the usual Claude billing or plan cost. Recaps are kept in
 `~/.local/state/herdr/plugins/herdr-recap/recaps/`, readable only by you.
+
+Searching the conversations (when no row matches the filter) reads Claude's
+and Codex's transcripts where they are on your disk, and sends nothing
+anywhere. An agent read through Memex is searched in the same recent page a
+recap of it reads.
 
 A native Claude recap is a fork of the conversation that is never saved: the
 agent's own session isn't written to, and it doesn't show up in

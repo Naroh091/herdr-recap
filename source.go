@@ -35,6 +35,9 @@ type source interface {
 	// settled notes that the session's suggested title was taken or turned
 	// down: it isn't offered again.
 	settled(s claudeSession) error
+	// search is where the session's conversation says every one of words:
+	// some of what was said, or "" when it doesn't.
+	search(ctx context.Context, s claudeSession, words []string) string
 	// plugins are the other plugins a row can link to, and open closes this
 	// popup for one of theirs.
 	plugins() map[string]popupRef
@@ -90,6 +93,10 @@ func (liveSource) rename(paneID string, s claudeSession) error { return askRenam
 func (liveSource) give(paneID string, s claudeSession) error { return giveTitle(paneID, s.ID) }
 
 func (l liveSource) capable(a agentInfo) bool { return recapCapable(l.cfg, a) }
+
+func (l liveSource) search(ctx context.Context, s claudeSession, words []string) string {
+	return searchSession(ctx, l.cfg, s, words)
+}
 
 func (liveSource) plugins() map[string]popupRef { return siblings() }
 

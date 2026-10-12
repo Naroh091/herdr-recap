@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -49,6 +50,21 @@ type recapMsg struct {
 }
 
 type focusedMsg struct{ err error }
+
+// seekMsg is the filter left alone for a moment with no row matching it,
+// and foundMsg the agents whose conversations have it.
+type seekMsg struct {
+	seq    int
+	filter string
+}
+type foundMsg struct {
+	filter string
+	found  map[string]string
+}
+
+// seekDelay is how long the filter is left alone before the conversations
+// are searched for it. A variable so tests needn't wait.
+var seekDelay = 250 * time.Millisecond
 
 // pluginsMsg is the other plugins installed, and openedMsg that this popup
 // is to close for one of theirs.
@@ -174,6 +190,15 @@ type model struct {
 	// agents' statuses come in and the list is sorted again; after, it stays
 	// on the agent you chose.
 	picked bool
+
+	// found: no row matched the filter, so the conversations were searched
+	// for it (search.go). The agents whose conversation has it, each with
+	// some of what was said; foundFor is the filter they were found for,
+	// and seeking that a search is on its way.
+	found    map[string]string
+	foundFor string
+	seeking  bool
+	seekSeq  int
 
 	links   map[string]popupRef // the other plugins a row can link to
 	startOn string              // the pane to open on: where another plugin's popup was opened from
@@ -450,6 +475,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.links = msg
 		return m, nil
 
+	case seekMsg:
+		if msg.seq != m.seekSeq || msg.filter != m.filter.Value() || len(m.order) > 0 {
+			return m, nil
+		}
+		m.seeking = true
+		return m, m.search(msg.filter)
+
+	case foundMsg:
+		if msg.filter != m.filter.Value() {
+			return m, nil // the filter has moved on, and another search with it
+		}
+		m.seeking = false
+		m.found, m.foundFor = msg.found, msg.filter
+		m.sortEntries()
+		m.cursor, m.offset, m.picked = 0, 0, false
+		m.scrollTo()
+		return m, nil
+
 	case openedMsg:
 		if errors.Is(msg.err, errDemo) {
 			m.flash = "In the demo that's as far as it goes: the pull requests are made up."
@@ -649,6 +692,9 @@ func (m model) matches(e *entry) bool {
 	if len(words) == 0 || (m.replying && e.agent.PaneID == m.replyTo) {
 		return true
 	}
+	if _, ok := m.foundIn(e); ok {
+		return true
+	}
 	hay := []string{title(e.agent), e.agent.Agent, stageOf(e).label(), e.branch}
 	// Idle is a stage too: the word finds that stage's agents, not every
 	// agent that's idle with a PR in review or merged.
@@ -687,9 +733,70 @@ func (m model) matches(e *entry) bool {
 
 // refilter lists what a changed filter matches, from the top.
 func (m *model) refilter() {
+	if m.filter.Value() != m.foundFor {
+		m.found, m.foundFor = nil, ""
+	}
+	m.seeking = false
 	m.sortEntries()
 	m.cursor, m.offset, m.picked = 0, 0, false
 	m.scrollTo()
+}
+
+// seek has the conversations searched for the filter when no row matches
+// it, once it's been left alone for a moment.
+func (m *model) seek() tea.Cmd {
+	filter := m.filter.Value()
+	m.seekSeq++
+	if len(m.order) > 0 || filter == m.foundFor || searchWords(filter) == nil {
+		return nil
+	}
+	m.seeking = true
+	seq := m.seekSeq
+	return tea.Tick(seekDelay, func(time.Time) tea.Msg { return seekMsg{seq, filter} })
+}
+
+// search looks through every agent's conversation for the filter, a few at
+// a time.
+func (m model) search(filter string) tea.Cmd {
+	words := searchWords(filter)
+	sessions := map[string]claudeSession{}
+	for pane, e := range m.entries {
+		if e.session != nil {
+			sessions[pane] = *e.session
+		}
+	}
+	ctx, src := m.ctx, m.src
+	return func() tea.Msg {
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+		found := map[string]string{}
+		room := make(chan struct{}, 4)
+		for pane, s := range sessions {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				room <- struct{}{}
+				defer func() { <-room }()
+				if text := src.search(ctx, s, words); text != "" {
+					mu.Lock()
+					found[pane] = text
+					mu.Unlock()
+				}
+			}()
+		}
+		wg.Wait()
+		return foundMsg{filter, found}
+	}
+}
+
+// foundIn is what an agent's conversation says of the filter, when it was
+// found by that rather than by its row.
+func (m model) foundIn(e *entry) (string, bool) {
+	if m.foundFor == "" || m.foundFor != m.filter.Value() {
+		return "", false
+	}
+	text, ok := m.found[e.agent.PaneID]
+	return text, ok
 }
 
 // paneLess orders pane IDs by their numbers, so w1:p2 comes before w1:p10.
@@ -792,6 +899,7 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.filter, cmd = m.filter.Update(k)
 	if m.filter.Value() != prev {
 		m.refilter()
+		cmd = tea.Batch(cmd, m.seek())
 	}
 	return m, cmd
 }
@@ -1045,6 +1153,10 @@ func (m model) recapWidth() int {
 // isn't one.
 func (m model) body(e *entry) (lines []string, dim bool) {
 	w := m.recapWidth()
+	if text, ok := m.foundIn(e); ok {
+		// Found by its conversation: what was said there, not the recap.
+		return wrap(text, w, recapLines), false
+	}
 	switch {
 	case e.recap != nil && e.recap.Text != "":
 		return wrap(e.recap.Text, w, recapLines), !e.current
@@ -1212,7 +1324,7 @@ func (m model) view() string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(m.viewHeader() + "\n\n" + m.filter.View() + "\n\n")
+	b.WriteString(m.viewHeader() + "\n\n" + m.filter.View() + "\n" + m.foundLine() + "\n")
 	h := m.listHeight()
 	used := 0
 	switch {
@@ -1221,6 +1333,12 @@ func (m model) view() string {
 		used++
 	case len(m.order) == 0 && len(m.entries) > 0 && m.show != stageAll && m.filter.Value() == "":
 		b.WriteString(styleDim.Render("  No agents at this stage.") + "\n")
+		used++
+	case len(m.order) == 0 && len(m.entries) > 0 && m.seeking:
+		b.WriteString(styleDim.Render("  Nothing matches. Searching the agents' conversations… ") + m.spin.View() + "\n")
+		used++
+	case len(m.order) == 0 && len(m.entries) > 0 && m.foundFor != "" && m.foundFor == m.filter.Value():
+		b.WriteString(styleDim.Render("  Nothing matches, in the agents' conversations either.") + "\n")
 		used++
 	case len(m.order) == 0 && len(m.entries) > 0:
 		b.WriteString(styleDim.Render("  Nothing matches.") + "\n")
@@ -1250,6 +1368,43 @@ func (m model) view() string {
 	}
 	b.WriteString(m.statusLine())
 	b.WriteString(m.renderFooter(m.footer()))
+	return b.String()
+}
+
+// foundLine goes on the line between the filter and the list: that what's
+// listed was found in the agents' conversations, no row matching the filter.
+func (m model) foundLine() string {
+	if len(m.order) == 0 || m.foundFor == "" || m.foundFor != m.filter.Value() || len(m.found) == 0 {
+		return ""
+	}
+	return styleDim.Render("  No row matches: found in these conversations")
+}
+
+// markWords is a line in base, with the words in it (whatever their case)
+// in hit.
+func markWords(line string, words []string, base, hit lipgloss.Style) string {
+	low := strings.ToLower(line)
+	if len(low) != len(line) {
+		return base.Render(line)
+	}
+	var b strings.Builder
+	for len(line) > 0 {
+		at, n := -1, 0
+		for _, w := range words {
+			if i := strings.Index(low, w); i >= 0 && (at < 0 || i < at) {
+				at, n = i, len(w)
+			}
+		}
+		if at < 0 {
+			b.WriteString(base.Render(line))
+			break
+		}
+		if at > 0 {
+			b.WriteString(base.Render(line[:at]))
+		}
+		b.WriteString(hit.Underline(true).Render(line[at : at+n]))
+		line, low = line[at+n:], low[at+n:]
+	}
 	return b.String()
 }
 
@@ -1325,10 +1480,14 @@ func (m model) viewEntry(e *entry, selected bool) []string {
 		recap = styleTitle.UnsetBold()
 	}
 	body, dim := m.body(e)
+	_, found := m.foundIn(e)
 	for _, l := range body {
-		if dim {
+		switch {
+		case found:
+			l = markWords(l, searchWords(m.filter.Value()), recap, styleTitle)
+		case dim:
 			l = styleDim.Render(l)
-		} else {
+		default:
 			l = recap.Render(l)
 		}
 		lines = append(lines, "   "+l)

@@ -21,6 +21,12 @@ Recaps for other agents. `agents` in `config.json` lists the ones recapped,
   data, with no tools, so it can't instruct the summarizer.
 - **Better titles for Codex agents too**: asked for in a fork of its own,
   and given with Codex's `/rename`. Not for agents read through Memex.
+- **When no row matches the filter, the agents' conversations are searched
+  for it.** The ones where it came up are listed, each with what was said
+  there: for when you remember what an agent said but not which agent. It
+  searches what you and the agent said, in Claude's and Codex's transcripts
+  on your disk (and the recent page Memex gives for the others), not what
+  tools read or printed. Try it in the demo with `playwright`.
 
 ## 0.5.4 - 2026-10-12
 
