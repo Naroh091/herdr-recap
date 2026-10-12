@@ -20,7 +20,7 @@ func readProcessEnv(pid int) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return envFromPS(string(out), "CLAUDE_CONFIG_DIR", "PATH"), nil
+	return envFromPS(string(out), "CLAUDE_CONFIG_DIR", "CODEX_HOME", "PATH"), nil
 }
 
 func envFromPS(line string, names ...string) map[string]string {
@@ -64,4 +64,19 @@ func processExe(pid int) (string, error) {
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "ps", "-o", "comm=", "-p", strconv.Itoa(pid)).Output()
 	return strings.TrimSpace(string(out)), err
+}
+
+// openFiles lists what a process has open, as lsof names it: one "n<path>"
+// line per file.
+func openFiles(pid int) []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, _ := exec.CommandContext(ctx, "lsof", "-a", "-p", strconv.Itoa(pid), "-Fn").Output()
+	var files []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, "n/") {
+			files = append(files, line[1:])
+		}
+	}
+	return files
 }

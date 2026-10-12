@@ -95,6 +95,25 @@ func TestConcurrentRecapsOfOneSessionRunOnce(t *testing.T) {
 	}
 }
 
+func TestRecapDeadlineIncludesLockWait(t *testing.T) {
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", t.TempDir())
+	s := testSessionWith(t, "one\n")
+	unlock, err := lockSession(context.Background(), s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+
+	started := time.Now()
+	_, _, err = ensureRecap(context.Background(), config{TimeoutSeconds: 1}, s, "Fix login", false)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("got %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("lock wait exceeded recap deadline: %v", elapsed)
+	}
+}
+
 func TestParseRecap(t *testing.T) {
 	for _, c := range []struct {
 		name, out, want string

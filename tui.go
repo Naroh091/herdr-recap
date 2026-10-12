@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -31,7 +32,7 @@ type agentsMsg struct {
 // pollMsg re-reads the agents, so statuses stay live while the popup is open.
 type pollMsg struct{}
 
-// sessionMsg is a pane's Claude session, found for the status change seq.
+// sessionMsg is a pane's agent session, found for the status change seq.
 type sessionMsg struct {
 	pane    string
 	seq     int64
@@ -49,6 +50,22 @@ type recapMsg struct {
 }
 
 type focusedMsg struct{ err error }
+
+// seekMsg is the filter left alone for a moment with no row matching it,
+// and foundMsg the agents whose conversations have it.
+type seekMsg struct {
+	seq    int
+	filter string
+}
+type foundMsg struct {
+	filter string
+	found  map[string]string
+	scores map[string]float64
+}
+
+// seekDelay is how long the filter is left alone before the conversations
+// are searched for it. A variable so tests needn't wait.
+var seekDelay = 250 * time.Millisecond
 
 // pluginsMsg is the other plugins installed, and openedMsg that this popup
 // is to close for one of theirs.
@@ -84,6 +101,19 @@ type titledMsg struct {
 
 // pollEvery is how often the open popup re-reads herdr's agents.
 const pollEvery = time.Second
+
+// A session lookup that fails is tried again, waiting longer each time up to
+// resolveRetryMax, so a Memex that isn't answering isn't asked every second
+// and a row that failed once isn't stuck until the agent's status changes.
+const (
+	resolveRetryBase = 2 * time.Second
+	resolveRetryMax  = 30 * time.Second
+)
+
+// memexRefreshEvery is how often a Memex-backed session is looked up again
+// while its status is unchanged: its row (and so its recap's stamp) moves as
+// Memex indexes more of the conversation, with no status change to notice.
+const memexRefreshEvery = 15 * time.Second
 
 // maxReplyLines is as tall as the reply box grows before it scrolls.
 const maxReplyLines = 6
@@ -128,7 +158,10 @@ type entry struct {
 	// settled: its suggested title was taken or turned down here. A recap
 	// read or written before that was noted with it doesn't say so, and
 	// mustn't bring the suggestion back.
-	settled bool
+	settled         bool
+	resolvedAt      time.Time // when the session was last found
+	retryAt         time.Time // not before this, after a failed lookup
+	resolveFailures uint      // failed lookups in a row, for the backoff
 }
 
 type model struct {
@@ -158,6 +191,18 @@ type model struct {
 	// agents' statuses come in and the list is sorted again; after, it stays
 	// on the agent you chose.
 	picked bool
+
+	// found: no row matched the filter, so the conversations were searched
+	// for it (search.go). The agents whose conversation has it, each with
+	// some of what was said; foundFor is the filter they were found for,
+	// and seeking that a search is on its way.
+	// scores: how well each of them matches, by Memex's reckoning when
+	// it's installed. They're listed best first then, not by stage.
+	found    map[string]string
+	scores   map[string]float64
+	foundFor string
+	seeking  bool
+	seekSeq  int
 
 	links   map[string]popupRef // the other plugins a row can link to
 	startOn string              // the pane to open on: where another plugin's popup was opened from
@@ -219,9 +264,9 @@ func (m model) loadAgents() tea.Cmd {
 }
 
 func (m model) resolve(a agentInfo) tea.Cmd {
-	src := m.src
+	src, ctx := m.src, m.ctx
 	return func() tea.Msg {
-		s, err := src.session(a.PaneID)
+		s, err := src.session(ctx, a)
 		msg := sessionMsg{pane: a.PaneID, seq: a.StateChangeSeq, session: s, err: err}
 		if err == nil {
 			msg.cached, msg.current = src.cached(s)
@@ -282,6 +327,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		e.resolving = false
 		if msg.err != nil {
 			e.session, e.note = nil, sessionNote(msg.err)
+			e.resolveFailures++
+			delay := resolveRetryBase << min(e.resolveFailures-1, 4)
+			if delay > resolveRetryMax {
+				delay = resolveRetryMax
+			}
+			e.retryAt = m.now().Add(delay)
 			if msg.seq != e.agent.StateChangeSeq {
 				// It changed while being looked up: look again.
 				return m, m.startResolve(e)
@@ -293,7 +344,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			e.settled = false
 		}
 		s := msg.session
+		// A Memex-backed session is looked up again every so often. One
+		// whose recap failed and that hasn't moved since isn't tried again
+		// (a summarizer that isn't there won't be there in 15 seconds), and
+		// goes on saying why.
+		if e.session != nil && e.session.ID == s.ID && e.session.Stamp == s.Stamp && s.Stamp != "" &&
+			strings.HasPrefix(e.note, "Couldn't recap") {
+			e.session, e.resolvedAt = &s, m.now()
+			return m, nil
+		}
 		e.session, e.note = &s, ""
+		e.resolvedAt, e.retryAt, e.resolveFailures = m.now(), time.Time{}, 0
 		if msg.cached != nil {
 			e.recap = msg.cached
 			e.recap.Settled = e.recap.Settled || e.settled
@@ -418,6 +479,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.links = msg
 		return m, nil
 
+	case seekMsg:
+		if msg.seq != m.seekSeq || msg.filter != m.filter.Value() || len(m.order) > 0 {
+			return m, nil
+		}
+		m.seeking = true
+		return m, m.search(msg.filter)
+
+	case foundMsg:
+		if msg.filter != m.filter.Value() {
+			return m, nil // the filter has moved on, and another search with it
+		}
+		m.seeking = false
+		m.found, m.scores, m.foundFor = msg.found, msg.scores, msg.filter
+		m.sortEntries()
+		m.cursor, m.offset, m.picked = 0, 0, false
+		m.scrollTo()
+		return m, nil
+
 	case openedMsg:
 		if errors.Is(msg.err, errDemo) {
 			m.flash = "In the demo that's as far as it goes: the pull requests are made up."
@@ -450,7 +529,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // updateAgents takes a fresh agent list: new agents get a row, gone ones lose
-// theirs, and a Claude agent whose status changed has its session looked up
+// theirs, and an agent whose status changed has its session looked up
 // again (it may be a new conversation, and its recap out of date).
 func (m *model) updateAgents(agents []agentInfo, workspaces []workspaceInfo) tea.Cmd {
 	selected := m.selectedPane()
@@ -472,7 +551,7 @@ func (m *model) updateAgents(agents []agentInfo, workspaces []workspaceInfo) tea
 		if e.renaming != "" {
 			// Its title says the rename was taken. One sent a while ago that
 			// doesn't show was taken too, as far as can be told.
-			if strings.TrimSpace(a.Title) == e.renaming || (!e.renameSent.IsZero() && m.now().Sub(e.renameSent) > renameWait) {
+			if sessionTitle(a) == e.renaming || (!e.renameSent.IsZero() && m.now().Sub(e.renameSent) > renameWait) {
 				cmds = append(cmds, m.endRename(e))
 			} else {
 				cmds = append(cmds, m.sendRename(e))
@@ -485,15 +564,15 @@ func (m *model) updateAgents(agents []agentInfo, workspaces []workspaceInfo) tea
 			src, pane, cwd := m.src, a.PaneID, a.Cwd
 			cmds = append(cmds, func() tea.Msg { return changesMsg{pane, at, src.changes(cwd)} })
 		}
-		if a.Agent != "claude" {
-			e.session, e.recap, e.note = nil, nil, "Recaps are for Claude agents."
+		if !m.src.capable(a) {
+			e.session, e.recap, e.note = nil, nil, "Recaps aren't available for this agent."
 			continue
 		}
-		if kindChanged && e.note == "Recaps are for Claude agents." {
+		if kindChanged && e.note == "Recaps aren't available for this agent." {
 			e.note = ""
 		}
-		if !e.resolving && e.resolvedSeq != a.StateChangeSeq {
-			cmds = append(cmds, m.startResolve(e))
+		if cmd := m.maybeResolve(e); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 	}
 	for pane := range m.entries {
@@ -525,18 +604,48 @@ func (m *model) startResolve(e *entry) tea.Cmd {
 	return m.resolve(e.agent)
 }
 
+// maybeResolve looks an agent's session up again when it's worth it: its
+// status changed, a failed lookup's backoff has run out, or a Memex-backed
+// session is old enough that the index may have moved on (the transcript is
+// read from Memex, so its row goes stale without any status change).
+func (m *model) maybeResolve(e *entry) tea.Cmd {
+	if e.resolving {
+		return nil
+	}
+	now := m.now()
+	switch {
+	case e.resolvedSeq != e.agent.StateChangeSeq:
+		// A new status: look now, whatever the backoff said.
+		e.retryAt, e.resolveFailures = time.Time{}, 0
+	case e.session == nil:
+		if e.retryAt.IsZero() || now.Before(e.retryAt) {
+			return nil
+		}
+	case !claudes(*e.session) && !e.session.Native && !e.resolvedAt.IsZero():
+		if now.Before(e.resolvedAt.Add(memexRefreshEvery)) {
+			return nil
+		}
+	default:
+		return nil
+	}
+	return m.startResolve(e)
+}
+
 func (m *model) startRecap(e *entry, force bool) tea.Cmd {
 	e.recapping, e.triedRecap = true, true
 	if e.note != "" && strings.HasPrefix(e.note, "Couldn't recap") {
 		e.note = ""
 	}
-	return m.recapCmd(e.agent.PaneID, *e.session, e.agent.Title, force)
+	return m.recapCmd(e.agent.PaneID, *e.session, sessionTitle(e.agent), force)
 }
 
 // sessionNote says why an agent's session couldn't be found.
 func sessionNote(err error) string {
-	if errors.Is(err, errNotClaude) {
+	switch {
+	case errors.Is(err, errNotClaude):
 		return "Claude isn't running in this pane any more."
+	case errors.Is(err, errSessionNotIndexed):
+		return "Memex hasn't indexed its conversation yet."
 	}
 	return "Couldn't find its conversation: " + err.Error()
 }
@@ -553,8 +662,13 @@ func (m *model) sortEntries() {
 			m.order = append(m.order, p)
 		}
 	}
+	ranked := m.ranked()
 	sort.Slice(m.order, func(i, j int) bool {
 		a, b := m.entries[m.order[i]].agent, m.entries[m.order[j]].agent
+		// Found in the conversations, and scored: the best match first.
+		if sa, sb := m.scores[a.PaneID], m.scores[b.PaneID]; ranked && sa != sb {
+			return sa > sb
+		}
 		if ra, rb := stageOf(m.entries[m.order[i]]), stageOf(m.entries[m.order[j]]); ra != rb {
 			return ra < rb
 		}
@@ -585,6 +699,9 @@ func (m *model) sortEntries() {
 func (m model) matches(e *entry) bool {
 	words := strings.Fields(strings.ToLower(m.filter.Value()))
 	if len(words) == 0 || (m.replying && e.agent.PaneID == m.replyTo) {
+		return true
+	}
+	if _, ok := m.foundIn(e); ok {
 		return true
 	}
 	hay := []string{title(e.agent), e.agent.Agent, stageOf(e).label(), e.branch}
@@ -625,9 +742,91 @@ func (m model) matches(e *entry) bool {
 
 // refilter lists what a changed filter matches, from the top.
 func (m *model) refilter() {
+	if m.filter.Value() != m.foundFor {
+		m.found, m.scores, m.foundFor = nil, nil, ""
+	}
+	m.seeking = false
 	m.sortEntries()
 	m.cursor, m.offset, m.picked = 0, 0, false
 	m.scrollTo()
+}
+
+// seek has the conversations searched for the filter when no row matches
+// it, once it's been left alone for a moment.
+func (m *model) seek() tea.Cmd {
+	filter := m.filter.Value()
+	m.seekSeq++
+	if len(m.order) > 0 || filter == m.foundFor || searchWords(filter) == nil {
+		return nil
+	}
+	m.seeking = true
+	seq := m.seekSeq
+	return tea.Tick(seekDelay, func(time.Time) tea.Msg { return seekMsg{seq, filter} })
+}
+
+// search looks through every agent's conversation for the filter, a few at
+// a time.
+func (m model) search(filter string) tea.Cmd {
+	words := searchWords(filter)
+	sessions := map[string]claudeSession{}
+	for pane, e := range m.entries {
+		if e.session != nil {
+			sessions[pane] = *e.session
+		}
+	}
+	ctx, src := m.ctx, m.src
+	return func() tea.Msg {
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+		found := map[string]string{}
+		room := make(chan struct{}, 4)
+		for pane, s := range sessions {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				room <- struct{}{}
+				defer func() { <-room }()
+				if text := src.search(ctx, s, words); text != "" {
+					mu.Lock()
+					found[pane] = text
+					mu.Unlock()
+				}
+			}()
+		}
+		wg.Wait()
+		// More than one: which is the likeliest, if there's a Memex to say.
+		var scores map[string]float64
+		if len(found) > 1 {
+			var ids []string
+			for pane := range found {
+				ids = append(ids, sessions[pane].ID)
+			}
+			byID := src.rank(ctx, filter, ids)
+			scores = map[string]float64{}
+			for pane := range found {
+				if score, ok := byID[sessions[pane].ID]; ok {
+					scores[pane] = score
+				}
+			}
+		}
+		return foundMsg{filter, found, scores}
+	}
+}
+
+// ranked is whether what's listed was found in the conversations and is in
+// order of how well it matches, rather than by stage.
+func (m model) ranked() bool {
+	return len(m.scores) > 0 && m.foundFor != "" && m.foundFor == m.filter.Value()
+}
+
+// foundIn is what an agent's conversation says of the filter, when it was
+// found by that rather than by its row.
+func (m model) foundIn(e *entry) (string, bool) {
+	if m.foundFor == "" || m.foundFor != m.filter.Value() {
+		return "", false
+	}
+	text, ok := m.found[e.agent.PaneID]
+	return text, ok
 }
 
 // paneLess orders pane IDs by their numbers, so w1:p2 comes before w1:p10.
@@ -730,6 +929,7 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.filter, cmd = m.filter.Update(k)
 	if m.filter.Value() != prev {
 		m.refilter()
+		cmd = tea.Batch(cmd, m.seek())
 	}
 	return m, cmd
 }
@@ -857,7 +1057,7 @@ func (m model) openLink(plugin string) (tea.Model, tea.Cmd) {
 // suggestion is the better title on offer for an agent: the one written
 // with its recap, until the agent has it. "" when there's none.
 func suggestion(e *entry) string {
-	if e.recap == nil || e.recap.Settled || e.recap.Title == strings.TrimSpace(e.agent.Title) {
+	if e.recap == nil || e.recap.Settled || e.recap.Title == sessionTitle(e.agent) {
 		return ""
 	}
 	return e.recap.Title
@@ -884,6 +1084,12 @@ func (m model) rename() (tea.Model, tea.Cmd) {
 		src, pane, s := m.src, e.agent.PaneID, *e.session
 		return m, func() tea.Msg { return renamedMsg{pane, t, false, src.rename(pane, s)} }
 	}
+	if e.agent.Agent != "claude" && e.agent.Agent != "codex" {
+		// A title is asked of the conversation itself, in a fork, and given
+		// with the agent's own /rename.
+		m.flash = "Titles are suggested for Claude and Codex agents."
+		return m, nil
+	}
 	if e.session == nil || e.session.Transcript == "" {
 		m.flash = "There's nothing to go by for a title yet."
 		if e.note != "" {
@@ -893,7 +1099,7 @@ func (m model) rename() (tea.Model, tea.Cmd) {
 	}
 	e.titling = true
 	m.scrollTo() // the row is a line longer
-	src, ctx, pane, s, t := m.src, m.ctx, e.agent.PaneID, *e.session, e.agent.Title
+	src, ctx, pane, s, t := m.src, m.ctx, e.agent.PaneID, *e.session, sessionTitle(e.agent)
 	return m, func() tea.Msg {
 		r, err := src.suggest(ctx, s, t)
 		return titledMsg{pane, s.ID, r, err}
@@ -977,6 +1183,10 @@ func (m model) recapWidth() int {
 // isn't one.
 func (m model) body(e *entry) (lines []string, dim bool) {
 	w := m.recapWidth()
+	if text, ok := m.foundIn(e); ok {
+		// Found by its conversation: what was said there, not the recap.
+		return wrap(text, w, recapLines), false
+	}
 	switch {
 	case e.recap != nil && e.recap.Text != "":
 		return wrap(e.recap.Text, w, recapLines), !e.current
@@ -1144,7 +1354,7 @@ func (m model) view() string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(m.viewHeader() + "\n\n" + m.filter.View() + "\n\n")
+	b.WriteString(m.viewHeader() + "\n\n" + m.filter.View() + "\n" + m.foundLine() + "\n")
 	h := m.listHeight()
 	used := 0
 	switch {
@@ -1153,6 +1363,12 @@ func (m model) view() string {
 		used++
 	case len(m.order) == 0 && len(m.entries) > 0 && m.show != stageAll && m.filter.Value() == "":
 		b.WriteString(styleDim.Render("  No agents at this stage.") + "\n")
+		used++
+	case len(m.order) == 0 && len(m.entries) > 0 && m.seeking:
+		b.WriteString(styleDim.Render("  Nothing matches. Searching the agents' conversations… ") + m.spin.View() + "\n")
+		used++
+	case len(m.order) == 0 && len(m.entries) > 0 && m.foundFor != "" && m.foundFor == m.filter.Value():
+		b.WriteString(styleDim.Render("  Nothing matches, in the agents' conversations either.") + "\n")
 		used++
 	case len(m.order) == 0 && len(m.entries) > 0:
 		b.WriteString(styleDim.Render("  Nothing matches.") + "\n")
@@ -1182,6 +1398,46 @@ func (m model) view() string {
 	}
 	b.WriteString(m.statusLine())
 	b.WriteString(m.renderFooter(m.footer()))
+	return b.String()
+}
+
+// foundLine goes on the line between the filter and the list: that what's
+// listed was found in the agents' conversations, no row matching the filter.
+func (m model) foundLine() string {
+	if len(m.order) == 0 || m.foundFor == "" || m.foundFor != m.filter.Value() || len(m.found) == 0 {
+		return ""
+	}
+	if m.ranked() {
+		return styleDim.Render(" No row matches: found in these conversations, the best match first")
+	}
+	return styleDim.Render(" No row matches: found in these conversations")
+}
+
+// markWords is a line in base, with the words in it (whatever their case)
+// in hit.
+func markWords(line string, words []string, base, hit lipgloss.Style) string {
+	low := strings.ToLower(line)
+	if len(low) != len(line) {
+		return base.Render(line)
+	}
+	var b strings.Builder
+	for len(line) > 0 {
+		at, n := -1, 0
+		for _, w := range words {
+			if i := strings.Index(low, w); i >= 0 && (at < 0 || i < at) {
+				at, n = i, len(w)
+			}
+		}
+		if at < 0 {
+			b.WriteString(base.Render(line))
+			break
+		}
+		if at > 0 {
+			b.WriteString(base.Render(line[:at]))
+		}
+		b.WriteString(hit.Underline(true).Render(line[at : at+n]))
+		line, low = line[at+n:], low[at+n:]
+	}
 	return b.String()
 }
 
@@ -1257,10 +1513,14 @@ func (m model) viewEntry(e *entry, selected bool) []string {
 		recap = styleTitle.UnsetBold()
 	}
 	body, dim := m.body(e)
+	_, found := m.foundIn(e)
 	for _, l := range body {
-		if dim {
+		switch {
+		case found:
+			l = markWords(l, searchWords(m.filter.Value()), recap, styleTitle)
+		case dim:
 			l = styleDim.Render(l)
-		} else {
+		default:
 			l = recap.Render(l)
 		}
 		lines = append(lines, "   "+l)
@@ -1640,15 +1900,15 @@ func debugList(cfg config) error {
 	}
 	for _, a := range agents {
 		fmt.Printf("%s  %-8s %-7s %s\n", a.PaneID, a.Status, a.Agent, title(a))
-		if a.Agent != "claude" {
+		if !src.capable(a) {
 			continue
 		}
-		s, err := src.session(a.PaneID)
+		s, err := src.session(context.Background(), a)
 		if err != nil {
 			fmt.Println("    session:", err)
 			continue
 		}
-		fmt.Printf("    session %s  config %s\n    transcript %s\n", s.ID, s.ConfigDir, s.Transcript)
+		fmt.Printf("    session %s  source %s  config %s\n    transcript %s\n", s.ID, s.Agent, s.ConfigDir, s.Transcript)
 		mt := s.Meta
 		c := readChanges(a.Cwd)
 		fmt.Printf("    branch %q (folder %q)  model %s  mode %q  tasks %d/%d  changes %+v\n",

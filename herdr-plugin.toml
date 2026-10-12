@@ -1,8 +1,8 @@
 id = "herdr-recap"
 name = "Recap"
-version = "0.5.4"
+version = "0.6.0"
 min_herdr_version = "0.9.0"
-description = "Every Claude agent in a herdr popup with its live status, title and a one-line recap of where it got to, written while you were away. Click one to jump to it."
+description = "Every Claude and Codex agent in a herdr popup with its live status, title and a one-line recap of where it got to, written while you were away. Click one to jump to it."
 platforms = ["linux", "macos"]
 
 # Builds ./bin/herdr-recap from source with Go, or downloads the release
@@ -38,7 +38,7 @@ width = "80%"
 height = "75%"
 command = ["./bin/herdr-recap", "picker"]
 
-# Recaps are written ahead of time. When a Claude agent finishes a turn (done)
+# Recaps are written ahead of time. When a Claude or Codex agent finishes a turn (done)
 # or stops to ask you something (blocked), `tick` schedules a recap for
 # recap_after_seconds later (180 by default). If you still haven't looked at
 # it by then, the recap is written; if you have, nothing is spent. Soon after

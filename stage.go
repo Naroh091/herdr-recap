@@ -122,8 +122,8 @@ func (m model) stageAt(i int) stage { return stageOf(m.entries[m.order[i]]) }
 // the first of each stage, and whichever entry the list is scrolled to, so
 // the top of the list always says what it's showing. Only under All.
 func (m model) headed(i int) bool {
-	if m.show != stageAll {
-		return false // the tab says it
+	if m.show != stageAll || m.ranked() {
+		return false // the tab says it, or they're in order of how well they match
 	}
 	return i == 0 || i == m.offset || m.stageAt(i) != m.stageAt(i-1)
 }

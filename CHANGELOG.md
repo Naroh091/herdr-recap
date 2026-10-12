@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.6.0 - 2026-10-12
+
+Recaps for other agents. `agents` in `config.json` lists the ones recapped,
+`["claude", "codex"]` unless you say otherwise.
+
+- **Codex agents are recapped, with nothing to set up.** If you run Codex
+  in herdr, its agents now get recaps as Claude's do, each one a short
+  request against your Codex plan or key. `"agents": ["claude"]` turns that
+  off.
+- **Codex recaps itself**, as Claude does: a fork of the pane's session that
+  is never saved (`codex exec fork --ephemeral`, read-only), so the
+  conversation goes nowhere it hadn't been. The session is found from the
+  pane's Codex process; herdr's Codex integration isn't needed.
+- **OpenCode and Hermes, through Memex, when you add them to `agents`**, by
+  [@saforem2](https://github.com/saforem2) (#1): Memex reads the end of the
+  session, and the user and assistant text is summarized by Claude Code
+  (`haiku` by default, or your own `summarizer` command). Sessions are
+  matched by the exact ID herdr reports, and the transcript is passed as
+  data, with no tools, so it can't instruct the summarizer.
+- **A long conversation read through Memex is recapped from its end.** It
+  was read forward from 500 records back, for at most 20 pages, which on an
+  agent that had run many tools stopped short of where it had got to. It's
+  now read back from the end until there's enough of what was said. Found
+  on the first run against a real Memex (0.27.2), which the lookup, the
+  read and the recap have now had.
+- **Better titles for Codex agents too**: asked for in a fork of its own,
+  and given with Codex's `/rename`. Not for agents read through Memex.
+- **When no row matches the filter, the agents' conversations are searched
+  for it.** The ones where it came up are listed, each with what was said
+  there: for when you remember what an agent said but not which agent. It
+  searches what you and the agent said, in Claude's and Codex's transcripts
+  on your disk (and the recent page Memex gives for the others), not what
+  tools read or printed. Try it in the demo with `playwright`. With Memex
+  installed, they're listed best match first, by its search's score.
+
 ## 0.5.4 - 2026-10-12
 
 - **An agent is found by a pull request it's done with.** Type a merged

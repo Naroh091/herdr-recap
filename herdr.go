@@ -100,7 +100,15 @@ type agentInfo struct {
 	// StateChangeSeq moves on every status change. A scheduled recap compares
 	// it to what it saw when it was scheduled: if it moved, you've looked (done
 	// became idle) or the agent carried on, and the recap is no longer wanted.
-	StateChangeSeq int64 `json:"state_change_seq"`
+	StateChangeSeq int64        `json:"state_change_seq"`
+	AgentSession   agentSession `json:"agent_session"`
+}
+
+type agentSession struct {
+	Source string `json:"source"`
+	Agent  string `json:"agent"`
+	Kind   string `json:"kind"`
+	Value  string `json:"value"`
 }
 
 func listAgents() ([]agentInfo, error) {

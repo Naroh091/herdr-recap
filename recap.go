@@ -19,6 +19,8 @@ import (
 // hasn't changed since.
 type recap struct {
 	Session string    `json:"session"`
+	Source  string    `json:"source,omitempty"`
+	Stamp   string    `json:"stamp,omitempty"`
 	Text    string    `json:"text"`
 	At      time.Time `json:"at"`
 	Size    int64     `json:"size"`
@@ -86,12 +88,20 @@ func fresh(r *recap, s claudeSession) bool {
 	if r == nil {
 		return false
 	}
+	if !claudes(s) && !s.Native {
+		return r.Source == s.Agent && r.Stamp != "" && r.Stamp == s.Stamp
+	}
 	size, mod := transcriptStamp(s.Transcript)
 	if r.Size == size && r.ModTime.Equal(mod) {
 		return true
 	}
-	return r.Size > 0 && size > r.Size && quietSince(s.Transcript, r.Size)
+	// Only Claude's transcripts are read for what was added since.
+	return claudes(s) && r.Size > 0 && size > r.Size && quietSince(s.Transcript, r.Size)
 }
+
+// claudes: the session is Claude's own, recapped by Claude itself. Another
+// agent's is recapped by that agent (Native: Codex) or read through Memex.
+func claudes(s claudeSession) bool { return s.Agent == "" || s.Agent == "claude" }
 
 // errNothingYet: the session has no conversation to recap.
 var errNothingYet = errors.New("nothing to recap yet")
@@ -105,11 +115,13 @@ var errNothingYet = errors.New("nothing to recap yet")
 // better one asked for alongside the recap, once per session: the suggestion
 // is kept from recap to recap.
 func ensureRecap(ctx context.Context, cfg config, s claudeSession, title string, force bool) (r recap, ran bool, err error) {
+	ctx, cancel := recapContext(ctx, cfg)
+	defer cancel()
 	if s.Transcript == "" {
 		return recap{}, false, errNothingYet
 	}
 	started := time.Now()
-	unlock, err := lockSession(s.ID)
+	unlock, err := lockSession(ctx, s.ID)
 	if err != nil {
 		return recap{}, false, err
 	}
@@ -126,7 +138,7 @@ func ensureRecap(ctx context.Context, cfg config, s claudeSession, title string,
 	}
 	// At the same time as the recap: both read the same cached conversation.
 	var suggested chan suggestion
-	if (c == nil || c.Title == "") && poorTitle(title, gitBranch(s.Cwd)) {
+	if titleable(s) && (c == nil || c.Title == "") && poorTitle(title, gitBranch(s.Cwd)) {
 		suggested = make(chan suggestion, 1)
 		go func() {
 			t, cost, err := suggestTitle(ctx, cfg, s, title)
@@ -153,7 +165,7 @@ func ensureRecap(ctx context.Context, cfg config, s claudeSession, title string,
 }
 
 // lockSession holds the session's lock file until unlock is called.
-func lockSession(id string) (func(), error) {
+func lockSession(ctx context.Context, id string) (func(), error) {
 	if err := os.MkdirAll(recapDir(), 0o700); err != nil {
 		return nil, err
 	}
@@ -161,9 +173,21 @@ func lockSession(id string) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		f.Close()
-		return nil, err
+	for {
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if err != syscall.EWOULDBLOCK && err != syscall.EAGAIN {
+			f.Close()
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			f.Close()
+			return nil, ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 	return func() {
 		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
@@ -183,17 +207,21 @@ func recapArgs(id string) []string {
 // the recap to herdr as an agent in the pane the plugin runs in. It gets the
 // agent's CLAUDE_CONFIG_DIR, so it finds the agent's sessions and account,
 // and the agent's PATH, which herdr's own often isn't (no ~/.local/bin).
-func recapEnv(s claudeSession) []string {
+func recapEnv(s claudeSession) []string { return agentEnv(s, "CLAUDE_CONFIG_DIR") }
+
+// agentEnv is recapEnv for any agent: configVar names the variable its
+// config directory is given in (CLAUDE_CONFIG_DIR, CODEX_HOME).
+func agentEnv(s claudeSession, configVar string) []string {
 	var env []string
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "HERDR_") || strings.HasPrefix(kv, "CLAUDE_CONFIG_DIR=") ||
+		if strings.HasPrefix(kv, "HERDR_") || strings.HasPrefix(kv, configVar+"=") ||
 			(s.Path != "" && strings.HasPrefix(kv, "PATH=")) {
 			continue
 		}
 		env = append(env, kv)
 	}
 	if s.ConfigDirSet {
-		env = append(env, "CLAUDE_CONFIG_DIR="+s.ConfigDir)
+		env = append(env, configVar+"="+s.ConfigDir)
 	}
 	if s.Path != "" {
 		env = append(env, "PATH="+s.Path)
@@ -236,6 +264,12 @@ func claudeBinary(cfg config, s claudeSession) string {
 }
 
 func runRecap(ctx context.Context, cfg config, s claudeSession) (recap, error) {
+	switch {
+	case s.Native:
+		return runCodexRecap(ctx, cfg, s)
+	case !claudes(s):
+		return runMemexRecap(ctx, cfg, s)
+	}
 	out, err := runCommand(ctx, cfg, s, recapArgs(s.ID))
 	if err != nil {
 		return recap{}, err

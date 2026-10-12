@@ -10,8 +10,10 @@ type source interface {
 	// agents is every agent herdr knows, with its workspaces' names in
 	// sidebar order.
 	agents() ([]agentInfo, []workspaceInfo, error)
-	// session finds the Claude session in a pane.
-	session(paneID string) (claudeSession, error)
+	// capable: the agent's conversation can be recapped.
+	capable(a agentInfo) bool
+	// session finds the coding agent session in a pane.
+	session(context.Context, agentInfo) (claudeSession, error)
 	// cached is the session's cached recap, if any, and whether it still
 	// describes the conversation.
 	cached(s claudeSession) (*recap, bool)
@@ -33,6 +35,12 @@ type source interface {
 	// settled notes that the session's suggested title was taken or turned
 	// down: it isn't offered again.
 	settled(s claudeSession) error
+	// search is where the session's conversation says every one of words:
+	// some of what was said, or "" when it doesn't.
+	search(ctx context.Context, s claudeSession, words []string) string
+	// rank is how well each of the sessions (by ID) matches the filter, the
+	// higher the better: empty when there's nothing to say so (no Memex).
+	rank(ctx context.Context, filter string, ids []string) map[string]float64
 	// plugins are the other plugins a row can link to, and open closes this
 	// popup for one of theirs.
 	plugins() map[string]popupRef
@@ -49,9 +57,11 @@ func (liveSource) agents() ([]agentInfo, []workspaceInfo, error) {
 	return agents, listWorkspaces(), nil
 }
 
-func (liveSource) session(paneID string) (claudeSession, error) {
-	s, err := resolveSession(paneID)
-	if err == nil {
+func (l liveSource) session(ctx context.Context, a agentInfo) (claudeSession, error) {
+	ctx, cancel := recapContext(ctx, l.cfg)
+	defer cancel()
+	s, err := resolveAgentSession(ctx, l.cfg, a)
+	if err == nil && claudes(s) {
 		s.Meta = readMeta(s.Transcript)
 	}
 	return s, err
@@ -84,6 +94,16 @@ func (l liveSource) suggest(ctx context.Context, s claudeSession, title string) 
 func (liveSource) rename(paneID string, s claudeSession) error { return askRename(paneID, s.ID) }
 
 func (liveSource) give(paneID string, s claudeSession) error { return giveTitle(paneID, s.ID) }
+
+func (l liveSource) capable(a agentInfo) bool { return recapCapable(l.cfg, a) }
+
+func (l liveSource) search(ctx context.Context, s claudeSession, words []string) string {
+	return searchSession(ctx, l.cfg, s, words)
+}
+
+func (l liveSource) rank(ctx context.Context, filter string, ids []string) map[string]float64 {
+	return rankSessions(ctx, l.cfg, filter, ids)
+}
 
 func (liveSource) plugins() map[string]popupRef { return siblings() }
 

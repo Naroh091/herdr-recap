@@ -15,6 +15,14 @@ import (
 // `claude --resume` needs to pick it up.
 type claudeSession struct {
 	ID string
+	// Agent is whose session it is: "" or claude for Claude's own. Another
+	// agent's is recapped by that agent itself (Native: Codex, codex.go) or
+	// read through Memex (memex.go), which says how current it is (Stamp:
+	// its last activity and message count) and how long (MessageCount).
+	Agent        string
+	Native       bool
+	Stamp        string
+	MessageCount int
 	// ConfigDir is the agent's CLAUDE_CONFIG_DIR, or ~/.claude. Profile
 	// switchers (clauth and the like) give each profile its own, so it's read
 	// from the agent's process rather than assumed.
@@ -37,6 +45,7 @@ type claudeSession struct {
 }
 
 var errNotClaude = errors.New("no Claude process in this pane")
+var errSessionNotIndexed = errors.New("session is not indexed by Memex")
 
 var sessionIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$`)
 

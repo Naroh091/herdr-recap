@@ -28,6 +28,7 @@ type demoAgent struct {
 	age     time.Duration
 	current bool
 	later   string // the recap written when it's out of date
+	said    string // something from its conversation that no recap mentions
 	suggest string // a better title than the one it has
 	meta    sessionMeta
 	active  time.Duration // when it last did anything, from the demo's start
@@ -61,6 +62,7 @@ var demoAgents = []demoAgent{
 		active:  -12 * time.Minute,
 		suggest: "WEB-512 Fix the Flaky Checkout Test",
 		recap:   "Fixed the flaky checkout test: it raced the cart animation, now it waits for the total. Next, push the branch and open the PR.",
+		said:    "The cart animation takes 300ms, so the test slept for 250 and usually lost. It now waits on the order total with Playwright's toHaveText, which retries until it's there, so there's no sleep left to tune.",
 	},
 	{
 		agent:   agentInfo{PaneID: "w1:p1", Cwd: "/demo/w1-p1", WorkspaceID: "w1", Agent: "claude", Status: "working", Title: "Dark mode for the settings page", StateChangeSeq: 12},
@@ -90,6 +92,7 @@ var demoAgents = []demoAgent{
 			LastPrompt: "draft release notes for 2.4 from the merged PRs"},
 		active: -2 * time.Hour,
 		recap:  "Drafted the 2.4 release notes from the merged PRs and grouped them by area. Next, check the upgrade section with the platform team.",
+		said:   "I've put the one breaking change first in the upgrade section: the webhook signature header is renamed, and the old name stops working in 2.5, so there's a note on sending both until then.",
 	},
 	{
 		agent:   agentInfo{PaneID: "w3:p4", Cwd: "/demo/w3-p4", WorkspaceID: "w3", Agent: "claude", Status: "idle", Title: "", Name: "scratch", StateChangeSeq: 1},
@@ -98,6 +101,9 @@ var demoAgents = []demoAgent{
 	{
 		agent: agentInfo{PaneID: "w2:p3", Cwd: "/demo/w2-p3", WorkspaceID: "w2", Agent: "codex", Status: "working", Title: "Rate limiter for the public API", StateChangeSeq: 7,
 			Tokens: map[string]string{"pr": "#415"}},
+		// Codex recaps itself, as Claude does; its session says less about it.
+		session: "0b3c9a51-5d7e-4f7a-9c35-1a2b3c4d5e07", age: 6 * time.Minute, current: true,
+		recap: "Adding a rate limiter to the public API: the token bucket and its tests are in. Next, read each key's limits from config.",
 	},
 }
 
@@ -139,12 +145,15 @@ func (d *demoSource) find(paneID string) *demoAgent {
 	return nil
 }
 
-func (d *demoSource) session(paneID string) (claudeSession, error) {
-	a := d.find(paneID)
+func (d *demoSource) session(_ context.Context, info agentInfo) (claudeSession, error) {
+	a := d.find(info.PaneID)
 	if a == nil || a.session == "" {
 		return claudeSession{}, errNotClaude
 	}
 	s := claudeSession{ID: a.session, Cwd: "/demo", Meta: a.meta}
+	if a.agent.Agent == "codex" {
+		s.Agent, s.Native = "codex", true
+	}
 	if s.Meta.Model != "" {
 		s.Meta.Active = d.started.Add(a.active)
 		s.Meta.PendingAt = s.Meta.Active
@@ -199,6 +208,20 @@ func (d *demoSource) changes(dir string) gitChanges {
 }
 
 func (d *demoSource) prompt(string, string) error { return nil }
+
+// search goes by what the demo's agents are made up to have said.
+func (d *demoSource) search(_ context.Context, s claudeSession, words []string) string {
+	f := newFinder(words)
+	for _, a := range demoAgents {
+		if a.session == s.ID {
+			f.see(a.said)
+		}
+	}
+	return f.snippet()
+}
+
+// The demo has no Memex: what's found is listed in the usual order.
+func (d *demoSource) rank(context.Context, string, []string) map[string]float64 { return nil }
 
 // The demo has herdr-github and herdr-linear, so its pull requests and
 // issues look as they would.
@@ -260,3 +283,7 @@ func (d *demoSource) settled(s claudeSession) error {
 	d.recaps[s.ID] = r
 	return nil
 }
+
+// capable: the demo's recaps are its Claude and Codex agents', as the
+// plugin's are unless config.json says otherwise.
+func (d *demoSource) capable(a agentInfo) bool { return a.Agent == "claude" || a.Agent == "codex" }

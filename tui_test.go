@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -84,8 +85,8 @@ func TestOutOfDateRecapsAreRewrittenOnOpen(t *testing.T) {
 
 func TestRowsSayWhyThereIsNoRecap(t *testing.T) {
 	m, _ := demoModel(t)
-	if e := m.entries["w2:p3"]; e.note != "Recaps are for Claude agents." {
-		t.Errorf("codex: %q", e.note)
+	if e := m.entries["w2:p3"]; e.note != "" || e.recap == nil || !strings.Contains(e.recap.Text, "rate limiter") {
+		t.Errorf("codex: %q, %+v", e.note, e.recap)
 	}
 	if e := m.entries["w3:p4"]; e.note != "Nothing to recap yet." || e.recapping {
 		t.Errorf("an empty conversation: %q, recapping %v", e.note, e.recapping)
@@ -106,7 +107,7 @@ func TestTheViewShowsStatusTitleAndRecap(t *testing.T) {
 		"settings-dark-mode · 14 files +530 −121 · 3/7 tasks", "main · ↑1", "codex · #415",
 		"opus 5.5 · acceptEdits",
 		"● Flaky checkout e2e test", "✓ Release notes for 2.4",
-		"scratch", "Nothing to recap yet.", "Recaps are for Claude agents.",
+		"scratch", "Nothing to recap yet.", "Adding a rate limiter to the public API",
 		"enter go to agent   tab reply   ^r suggest title   ←→ stage   esc close", // pills: a cell either side, one between
 	} {
 		if !strings.Contains(v, want) {
@@ -484,6 +485,13 @@ func TestCtrlRAsksForATitleWhenNoneIsSuggested(t *testing.T) {
 	if e := m.entries["w3:p2"]; titled(e) || !strings.Contains(m.flash, "would keep the title it has") {
 		t.Errorf("flash %q", m.flash)
 	}
+	// A Codex agent is asked for one as a Claude agent is.
+	m = selectPane(m, "w2:p3")
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	if m = next.(model); cmd == nil || !m.entries["w2:p3"].titling {
+		t.Errorf("codex wasn't asked for a title: flash %q", m.flash)
+	}
+	m = settle(t, m, cmd)
 	// Nothing said yet: nothing to go by.
 	m = selectPane(m, "w3:p4")
 	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
@@ -508,6 +516,109 @@ func TestAWorkingAgentIsRecappedOnceWhileOpen(t *testing.T) {
 	next, cmd := m.Update(sessionMsg{pane: "w1:p1", seq: e.agent.StateChangeSeq, session: *e.session, cached: e.recap})
 	if cmd != nil || next.(model).entries["w1:p1"].recapping {
 		t.Error("recapped a working agent again")
+	}
+}
+
+type flakySessionSource struct {
+	*demoSource
+	calls int
+}
+
+func (f *flakySessionSource) capable(agentInfo) bool { return true }
+
+func (f *flakySessionSource) session(context.Context, agentInfo) (claudeSession, error) {
+	f.calls++
+	if f.calls == 1 {
+		return claudeSession{}, errSessionNotIndexed
+	}
+	return claudeSession{Agent: "codex", ID: codexSession, Transcript: "/x", Stamp: "v1"}, nil
+}
+
+func TestFailedMemexLookupRetriesWithBoundedBackoff(t *testing.T) {
+	src := &flakySessionSource{demoSource: newDemoSource()}
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	m := newModel(context.Background(), src)
+	m.now = func() time.Time { return now }
+	a := agentInfo{PaneID: "w9:p1", Agent: "codex", Status: "done", StateChangeSeq: 1, AgentSession: agentSession{Kind: "id", Value: codexSession}}
+	m = settle(t, m, m.updateAgents([]agentInfo{a}, nil))
+	if src.calls != 1 {
+		t.Fatalf("initial calls: %d", src.calls)
+	}
+	m.updateAgents([]agentInfo{a}, nil)
+	if src.calls != 1 {
+		t.Fatalf("retried without backoff: %d", src.calls)
+	}
+	now = now.Add(resolveRetryBase)
+	m = settle(t, m, m.updateAgents([]agentInfo{a}, nil))
+	if src.calls != 2 || m.entries[a.PaneID].session == nil {
+		t.Fatalf("calls %d, entry %+v", src.calls, m.entries[a.PaneID])
+	}
+}
+
+type refreshingSessionSource struct {
+	*demoSource
+	calls int
+}
+
+func (r *refreshingSessionSource) capable(agentInfo) bool { return true }
+
+func (r *refreshingSessionSource) session(context.Context, agentInfo) (claudeSession, error) {
+	r.calls++
+	return claudeSession{Agent: "opencode", ID: openCodeSession, Transcript: "/x", Stamp: fmt.Sprintf("v%d", r.calls)}, nil
+}
+
+func TestMemexSessionRefreshesWhileStateIsUnchanged(t *testing.T) {
+	src := &refreshingSessionSource{demoSource: newDemoSource()}
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	m := newModel(context.Background(), src)
+	m.now = func() time.Time { return now }
+	a := agentInfo{PaneID: "w9:p2", Agent: "opencode", Status: "done", StateChangeSeq: 1, AgentSession: agentSession{Kind: "id", Value: openCodeSession}}
+	m = settle(t, m, m.updateAgents([]agentInfo{a}, nil))
+	if got := m.entries[a.PaneID].session.Stamp; got != "v1" {
+		t.Fatalf("stamp %q", got)
+	}
+	now = now.Add(memexRefreshEvery)
+	m = settle(t, m, m.updateAgents([]agentInfo{a}, nil))
+	if src.calls != 2 || m.entries[a.PaneID].session.Stamp != "v2" {
+		t.Fatalf("calls %d, session %+v", src.calls, m.entries[a.PaneID].session)
+	}
+}
+
+// failingRecapSource is a Memex-backed session whose recap always fails.
+type failingRecapSource struct {
+	*demoSource
+	recaps int
+}
+
+func (f *failingRecapSource) capable(agentInfo) bool { return true }
+
+func (f *failingRecapSource) session(context.Context, agentInfo) (claudeSession, error) {
+	return claudeSession{Agent: "opencode", ID: openCodeSession, Transcript: "/x", Stamp: "v1"}, nil
+}
+
+func (f *failingRecapSource) cached(claudeSession) (*recap, bool) { return nil, false }
+
+func (f *failingRecapSource) recap(context.Context, claudeSession, string, bool) (recap, error) {
+	f.recaps++
+	return recap{}, errors.New("no summarizer")
+}
+
+func TestAFailedMemexRecapIsntTriedAgainUntilTheSessionMoves(t *testing.T) {
+	src := &failingRecapSource{demoSource: newDemoSource()}
+	now := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
+	m := newModel(context.Background(), src)
+	m.now = func() time.Time { return now }
+	a := agentInfo{PaneID: "w9:p3", Agent: "opencode", Status: "done", StateChangeSeq: 1, AgentSession: agentSession{Kind: "id", Value: openCodeSession}}
+	m = settle(t, m, m.updateAgents([]agentInfo{a}, nil))
+	if src.recaps != 1 || !strings.HasPrefix(m.entries[a.PaneID].note, "Couldn't recap") {
+		t.Fatalf("recaps %d, note %q", src.recaps, m.entries[a.PaneID].note)
+	}
+	for range 3 {
+		now = now.Add(memexRefreshEvery)
+		m = settle(t, m, m.updateAgents([]agentInfo{a}, nil))
+	}
+	if src.recaps != 1 || !strings.HasPrefix(m.entries[a.PaneID].note, "Couldn't recap") {
+		t.Errorf("tried again %d times, note %q", src.recaps-1, m.entries[a.PaneID].note)
 	}
 }
 

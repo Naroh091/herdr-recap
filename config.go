@@ -11,12 +11,32 @@ import (
 type config struct {
 	// RecapAfterSeconds is how long an agent has to sit finished (done) or
 	// waiting on you (blocked) without you looking before its recap is
-	// written. Short glances away cost nothing. Past the prompt cache's
-	// lifetime (5 minutes by default) each recap costs several times more.
+	// written. Short glances away cost nothing. Native Claude recaps can reuse
+	// the session cache when this stays below that cache's lifetime.
 	RecapAfterSeconds int `json:"recap_after_seconds"`
 	// Claude is the claude binary recaps run with. Empty = the one the agent
 	// runs, or "claude" on PATH.
 	Claude string `json:"claude"`
+	// Agents names the agents to recap: any of claude, codex, opencode,
+	// hermes. Empty = claude and codex, which recap themselves: a fork of
+	// the conversation that goes nowhere it hadn't been. OpenCode's and
+	// Hermes's are read by Memex and sent to the summarizer, which by
+	// default is Claude, so those are for you to add.
+	Agents []string `json:"agents"`
+	// Codex is the codex binary Codex recaps run with. Empty = the one the
+	// agent runs, or "codex" on PATH.
+	Codex string `json:"codex"`
+	// Memex is the memex binary. Empty = "memex" on PATH.
+	Memex string `json:"memex"`
+	// Summarizer is the command that writes a Memex-read conversation's
+	// recap: the prompt on stdin, the recap alone on stdout. Empty = Claude
+	// Code's print mode, with SummarizerModel (empty = haiku: a recap is a
+	// small job, and this one has no prompt cache to reuse).
+	Summarizer      []string `json:"summarizer"`
+	SummarizerModel string   `json:"summarizer_model"`
+	// TranscriptMaxChars is the most of a conversation's end the summarizer
+	// is sent.
+	TranscriptMaxChars int `json:"transcript_max_chars"`
 	// TimeoutSeconds bounds one recap.
 	TimeoutSeconds int `json:"timeout_seconds"`
 	// Theme: "dark", "light", or empty to ask the terminal.
@@ -84,6 +104,23 @@ func withDefaults(cfg config) config {
 		cfg.RecapAfterSeconds = 180
 	}
 	cfg.Claude = expandHome(cfg.Claude)
+	if len(cfg.Agents) == 0 {
+		cfg.Agents = []string{"claude", "codex"}
+	}
+	cfg.Codex = expandHome(cfg.Codex)
+	cfg.Memex = expandHome(cfg.Memex)
+	if cfg.Memex == "" {
+		cfg.Memex = "memex"
+	}
+	if cfg.SummarizerModel == "" {
+		cfg.SummarizerModel = "haiku"
+	}
+	if cfg.TranscriptMaxChars <= 0 {
+		cfg.TranscriptMaxChars = 24000
+	}
+	for i := range cfg.Summarizer {
+		cfg.Summarizer[i] = expandHome(cfg.Summarizer[i])
+	}
 	if cfg.TimeoutSeconds <= 0 {
 		cfg.TimeoutSeconds = 120
 	}
