@@ -36,8 +36,10 @@ func TestWriteDemoScreens(t *testing.T) {
 	catppuccin := herdrPalettes["catppuccin"]
 	useTheme(&catppuccin)
 	t.Cleanup(func() { useTheme(nil) })
-	m, _ := demoModel(t)
+	m, demo := demoModel(t)
 	m.width, m.height = 100, 51
+	// With the GitHub and Linear plugins installed, as the demo has them.
+	m.links = demo.plugins()
 
 	// Coming back: what needs you first, what each agent got to.
 	save("agents", m)

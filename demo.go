@@ -43,7 +43,7 @@ var demoWorkspaces = []workspaceInfo{
 var demoAgents = []demoAgent{
 	{
 		agent: agentInfo{PaneID: "w2:p1", Cwd: "/demo/w2-p1", WorkspaceID: "w2", Agent: "claude", Status: "blocked", Title: "Move billing webhooks to v2 events", StateChangeSeq: 4,
-			Tokens: map[string]string{"pr": "#412", "pr_checks": "passing"}},
+			Tokens: map[string]string{"pr": "#412", "pr_checks": "passing", "issue": "BIL-207", "issue_state": "In Progress"}},
 		session: "0b3c9a51-5d7e-4f7a-9c35-1a2b3c4d5e01", age: 3 * time.Minute, current: true,
 		meta: sessionMeta{Branch: "billing/webhooks-v2", Model: "claude-opus-5-5", Mode: "acceptEdits",
 			LastPrompt: "run the migration against staging when the tests pass",

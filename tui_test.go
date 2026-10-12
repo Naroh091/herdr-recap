@@ -101,7 +101,7 @@ func TestTheViewShowsStatusTitleAndRecap(t *testing.T) {
 		"Recap   All 7  Needs you 1  Done 1  Idle 2  Working 2  In review 1",
 		"Needs you 1", "Done 1", "Idle 2", "Working 2", "In review 1",
 		"◉ Move billing webhooks to v2 events", "billing · waiting 2m",
-		"billing/webhooks-v2 · 6 files +214 −58 ↑2 · 4/5 tasks · #412",
+		"billing/webhooks-v2 · 6 files +214 −58 ↑2 · 4/5 tasks · BIL-207 In Progress · #412",
 		"? Run npm run migrate -- --env staging",
 		"storefront · done 12m", "storefront · working 18m", "docs · idle 2h",
 		"settings-dark-mode · 14 files +530 −121 · 3/7 tasks", "main · ↑1", "codex · #415",
