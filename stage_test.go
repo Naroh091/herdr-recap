@@ -52,6 +52,7 @@ func TestNewWorkAfterAMergePutsAnAgentBackInProgress(t *testing.T) {
 	m, _ := demoModel(t)
 	e := m.entries["w1:p4"] // idle, its PR open
 	e.agent.Tokens = map[string]string{"prs": "#431 merged", "pr_state": "merged"}
+	m.picked = true
 	m.resort("w1:p4")
 	if last := len(m.order) - 1; m.order[last] != "w1:p4" || m.cursor != last {
 		t.Fatalf("merged isn't last, selected: %s, cursor %d", paneOrder(m), m.cursor)

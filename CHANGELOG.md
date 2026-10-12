@@ -21,6 +21,14 @@ Recaps for other agents. `agents` in `config.json` lists the ones recapped,
   data, with no tools, so it can't instruct the summarizer.
 - **Better titles for Codex agents too**: asked for in a fork of its own,
   and given with Codex's `/rename`. Not for agents read through Memex.
+
+## 0.5.3 - 2026-10-12
+
+- **The selection stays on the top row until you pick one.** It used to
+  follow whichever agent was first when the popup opened, and drift down
+  the list as statuses came in and the order changed. Once you move, point
+  at or act on a row, it follows that agent as before.
+
 ## 0.5.2 - 2026-10-11
 
 - **Pull requests and Linear issues open in their plugins.** With

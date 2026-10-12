@@ -121,7 +121,7 @@ func TestTheViewShowsStatusTitleAndRecap(t *testing.T) {
 
 func TestTheCursorFollowsItsAgentWhenTheOrderChanges(t *testing.T) {
 	m, _ := demoModel(t)
-	m.cursor = 4 // w1:p1, working
+	m.move(4) // w1:p1, working
 	agents, ws, _ := m.src.agents()
 	for i := range agents {
 		if agents[i].PaneID == "w1:p1" {
@@ -131,6 +131,21 @@ func TestTheCursorFollowsItsAgentWhenTheOrderChanges(t *testing.T) {
 	m = settle(t, m, func() tea.Msg { return agentsMsg{agents: agents, workspaces: ws} })
 	if m.selectedPane() != "w1:p1" {
 		t.Errorf("cursor on %s", m.selectedPane())
+	}
+
+	// Opened and left alone, the selection is the top row, whoever that
+	// becomes: not the agent that was first when the popup opened.
+	m, _ = demoModel(t)
+	first := m.selectedPane()
+	agents, ws, _ = m.src.agents()
+	for i := range agents {
+		if agents[i].PaneID == first {
+			agents[i].Status, agents[i].StateChangeSeq = "idle", 99
+		}
+	}
+	m = settle(t, m, func() tea.Msg { return agentsMsg{agents: agents, workspaces: ws} })
+	if m.cursor != 0 || m.offset != 0 || m.selectedPane() == first {
+		t.Errorf("cursor %d on %s (was first: %s), order %s", m.cursor, m.selectedPane(), first, paneOrder(m))
 	}
 }
 
@@ -288,7 +303,7 @@ func renameModel(t *testing.T) (model, *renameSource) {
 func selectPane(m model, pane string) model {
 	for i, p := range m.order {
 		if p == pane {
-			m.cursor = i
+			m.cursor, m.picked = i, true
 		}
 	}
 	m.scrollTo()

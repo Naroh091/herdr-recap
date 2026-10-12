@@ -169,6 +169,12 @@ type model struct {
 
 	mouseX, mouseY int // last pointer position; -1 until the mouse moves
 
+	// picked: you've chosen a row (moved to it, pointed at it, acted on it).
+	// Until then the selection is the top row, whoever that becomes as the
+	// agents' statuses come in and the list is sorted again; after, it stays
+	// on the agent you chose.
+	picked bool
+
 	links   map[string]popupRef // the other plugins a row can link to
 	startOn string              // the pane to open on: where another plugin's popup was opened from
 
@@ -481,7 +487,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *model) updateAgents(agents []agentInfo, workspaces []workspaceInfo) tea.Cmd {
 	selected := m.selectedPane()
 	if !m.loaded && m.startOn != "" {
-		selected = m.startOn
+		selected, m.picked = m.startOn, true
 	}
 	m.loaded, m.workspaces = true, workspaces
 	var cmds []tea.Cmd
@@ -536,9 +542,12 @@ func (m *model) resort(selected string) {
 	m.sortEntries()
 	m.cursor = 0
 	for i, p := range m.order {
-		if p == selected {
+		if p == selected && m.picked {
 			m.cursor = i
 		}
+	}
+	if !m.picked {
+		m.offset = 0
 	}
 	m.scrollTo()
 }
@@ -677,7 +686,7 @@ func (m model) matches(e *entry) bool {
 // refilter lists what a changed filter matches, from the top.
 func (m *model) refilter() {
 	m.sortEntries()
-	m.cursor, m.offset = 0, 0
+	m.cursor, m.offset, m.picked = 0, 0, false
 	m.scrollTo()
 }
 
@@ -735,6 +744,7 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 	case "tab":
+		m.picked = true
 		return m.startReply()
 	case "left":
 		m.stepStage(-1)
@@ -763,8 +773,10 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.activate()
 	case "ctrl+r":
+		m.picked = true
 		return m.rename()
 	case "ctrl+x":
+		m.picked = true
 		return m.ignore()
 	case "ctrl+g":
 		return m.openLink(githubPlugin)
@@ -1000,7 +1012,7 @@ func (m *model) move(delta int) {
 	if len(m.order) == 0 {
 		return
 	}
-	m.cursor = min(max(m.cursor+delta, 0), len(m.order)-1)
+	m.cursor, m.picked = min(max(m.cursor+delta, 0), len(m.order)-1), true
 	m.scrollTo()
 }
 
