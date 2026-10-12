@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 // When no row matches the filter, the agents' conversations are searched for
@@ -37,7 +38,8 @@ func searchWords(filter string) []string {
 }
 
 // finder gathers what a conversation says of the words: which of them it
-// has, and the message that has the most, the latest of those.
+// has, and the message that has the most, the latest of those. A word on
+// its own counts for more than one inside another ("raw" in "withdrawn").
 type finder struct {
 	words []string
 	seen  []bool
@@ -54,7 +56,10 @@ func (f *finder) see(text string) {
 	low := strings.ToLower(text)
 	n := 0
 	for i, w := range f.words {
-		if strings.Contains(low, w) {
+		if at := wordIndex(low, w); at >= 0 {
+			f.seen[i] = true
+			n += 2
+		} else if strings.Contains(low, w) {
 			f.seen[i] = true
 			n++
 		}
@@ -75,14 +80,38 @@ func (f *finder) snippet() string {
 	return around(f.best, f.words, snippetWidth)
 }
 
-// around is text cut to about width around the first of the words in it, on
-// one line.
+// wordIndex is where word stands on its own in text (both lower case), not
+// inside a longer word, or -1.
+func wordIndex(text, word string) int {
+	for from := 0; ; {
+		i := strings.Index(text[from:], word)
+		if i < 0 {
+			return -1
+		}
+		i += from
+		before, _ := utf8.DecodeLastRuneInString(text[:i])
+		after, _ := utf8.DecodeRuneInString(text[i+len(word):])
+		if !wordRune(before) && !wordRune(after) {
+			return i
+		}
+		from = i + len(word)
+	}
+}
+
+func wordRune(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
+
+// around is text cut to about width around the first of the words in it (on
+// its own, if it's there so), on one line.
 func around(text string, words []string, width int) string {
 	runes := []rune(strings.Join(strings.Fields(clean(text, false)), " "))
 	low := []rune(strings.ToLower(string(runes)))
 	at := -1
 	for _, w := range words {
-		if i := strings.Index(string(low), w); i >= 0 {
+		i := wordIndex(string(low), w)
+		if i < 0 {
+			i = strings.Index(string(low), w)
+		}
+		if i >= 0 {
 			if r := len([]rune(string(low)[:i])); at < 0 || r < at {
 				at = r
 			}

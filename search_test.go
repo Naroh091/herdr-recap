@@ -128,6 +128,17 @@ func TestWhatWasSaidIsShownAroundWhatMatched(t *testing.T) {
 	if got := around("short\nand  sweet", []string{"sweet"}, 80); got != "short and sweet" {
 		t.Errorf("%q", got)
 	}
+	// The word on its own, before the word inside another.
+	f := newFinder([]string{"raw"})
+	f.see("the raw key lists, verbatim")
+	f.see("that change is withdrawn")
+	if got := f.snippet(); got != "the raw key lists, verbatim" {
+		t.Errorf("%q", got)
+	}
+	drawn := strings.Repeat("it was withdrawn and redrawn. ", 20) + "Then the raw text. " + strings.Repeat("after ", 40)
+	if got := around(drawn, []string{"raw"}, 60); !strings.Contains(got, "the raw text") {
+		t.Errorf("%q", got)
+	}
 	// A line longer than is read is passed over, not the rest of the file.
 	path := filepath.Join(t.TempDir(), "long.jsonl")
 	huge := `{"type":"user","message":{"role":"user","content":"` + strings.Repeat("needle ", searchLineMax/7+1) + `"}}`
