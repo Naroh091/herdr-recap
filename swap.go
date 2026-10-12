@@ -62,7 +62,8 @@ func swapEnv(env []string, own string, p popupRef, root string) []string {
 				dirs[k] = filepath.Join(filepath.Dir(v), p.PluginID)
 			}
 		case strings.HasPrefix(k, "HERDR_PLUGIN_"), k == returnEnv,
-			strings.HasPrefix(k, "HERDR_RECAP_"), strings.HasPrefix(k, "HERDR_GITHUB_"), strings.HasPrefix(k, "HERDR_LINEAR_"):
+			strings.HasPrefix(k, "HERDR_RECAP_"), strings.HasPrefix(k, "HERDR_GITHUB_"), strings.HasPrefix(k, "HERDR_LINEAR_"),
+			strings.HasPrefix(k, "HERDR_SNOOZE_"):
 		default:
 			out = append(out, kv)
 		}

@@ -2,6 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
 )
 
 // source is where the popup gets its agents and recaps: herdr and Claude, or
@@ -45,6 +51,8 @@ type source interface {
 	// popup for one of theirs.
 	plugins() map[string]popupRef
 	open(popupRef) error
+	// wake ends a snooze now, through herdr-snooze.
+	wake(paneID string) error
 }
 
 type liveSource struct{ cfg config }
@@ -108,3 +116,26 @@ func (l liveSource) rank(ctx context.Context, filter string, ids []string) map[s
 func (liveSource) plugins() map[string]popupRef { return siblings() }
 
 func (liveSource) open(p popupRef) error { return handOver(p) }
+
+// wake runs herdr-snooze's own `wake <pane>`, as herdr would run it for
+// that plugin: from its folder, with its environment. It's the plugin that
+// knows what it hid and how to bring it back.
+func (liveSource) wake(paneID string) error {
+	p := popupRef{PluginID: snoozePlugin, Entrypoint: "picker"}
+	root, command, err := paneCommand(p)
+	if err != nil {
+		return err
+	}
+	path := command[0]
+	if strings.Contains(path, "/") && !filepath.IsAbs(path) {
+		path = filepath.Join(root, path)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "wake", paneID)
+	cmd.Dir, cmd.Env = root, swapEnv(os.Environ(), pluginID(), p, root)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}

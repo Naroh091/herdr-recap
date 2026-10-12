@@ -14,6 +14,10 @@ import (
 // installed.
 const githubPlugin, linearPlugin = "herdr-github", "herdr-linear"
 
+// snoozePlugin hides agents from herdr's Agents panel until a time: ctrl+s
+// opens its popup on the selected agent, to snooze it or wake it.
+const snoozePlugin = "herdr-snooze"
+
 // returnEnv is how a popup is told where it was opened from: a popupRef, as
 // JSON, to open again when it's closed. herdr shows one popup at a time, so
 // going from one plugin's to another's means closing the first.
@@ -153,6 +157,15 @@ func linearFor(to popupRef, a agentInfo) popupRef {
 		"HERDR_LINEAR_CWD": a.Cwd, "HERDR_LINEAR_ISSUE": strings.TrimSpace(a.Tokens["issue"]),
 		returnEnv: string(back),
 	}
+	return to
+}
+
+// snoozeFor is herdr-snooze's popup on an agent: how long to snooze it for,
+// or with it snoozed, when to wake it instead, with this popup to come back
+// to. Its popup is small, and says so in plugin.list.
+func snoozeFor(to popupRef, a agentInfo) popupRef {
+	back, _ := json.Marshal(here(a.PaneID))
+	to.Env = map[string]string{"HERDR_SNOOZE_PANE": a.PaneID, returnEnv: string(back)}
 	return to
 }
 

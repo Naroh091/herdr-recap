@@ -10,7 +10,8 @@ import (
 // stage is where an agent's work has got to, which the list is grouped by:
 // its status while that says something (it's asking, it finished a turn,
 // it's at work), and once it's idle, its pull request (herdr-github's pr_*
-// tokens). In list order: whose move it is, yours first.
+// tokens). In list order: whose move it is, yours first. Snoozed ones come
+// last, whatever they're doing: you've said they can wait.
 type stage int
 
 const (
@@ -21,6 +22,7 @@ const (
 	stageWorking               // at work
 	stageReview                // idle, its PR open and nothing wrong with it: someone else's
 	stageMerged                // idle, its PR merged or closed and nothing new since
+	stageSnoozed               // hidden by herdr-snooze until a time
 )
 
 // stageOf derives an agent's stage. A status that says something wins over
@@ -28,6 +30,9 @@ const (
 // merged. So does new work in its worktree, between turns. (Its next branch
 // has no PR, so herdr-github clears the tokens and it's idle anyway.)
 func stageOf(e *entry) stage {
+	if snoozed(e.agent) {
+		return stageSnoozed
+	}
 	switch e.agent.Status {
 	case "blocked":
 		return stageNeedsYou
@@ -55,6 +60,30 @@ func stageOf(e *entry) stage {
 	return stageIdle
 }
 
+// snoozeMark is herdr-snooze's token on a snoozed pane: there, it's
+// snoozed. snoozeBadge is its token for showing: a badge, two spaces and
+// when it wakes ("💤  17:30", "💤  Tue 09:00"). Neither is listed among a
+// row's tokens: the row says it its own way.
+const snoozeMark, snoozeBadge = "herdr_snooze", "snoozed"
+
+// snoozed: herdr-snooze has hidden the agent until a time.
+func snoozed(a agentInfo) bool { return a.Tokens[snoozeMark] != "" }
+
+// wakeText is when a snoozed agent wakes, for its row: "until 17:30". The
+// badge before the time is left out: the stage already says it's snoozed,
+// and an emoji's width is the terminal's guess (and freeze's font has none).
+// Just "snoozed" when it doesn't say when.
+func wakeText(a agentInfo) string {
+	v := strings.TrimSpace(a.Tokens[snoozeBadge])
+	if _, at, ok := strings.Cut(v, "  "); ok {
+		v = strings.TrimSpace(at)
+	}
+	if v == "" {
+		return "snoozed"
+	}
+	return "until " + v
+}
+
 // stageAll is the tab that lists every stage, grouped under headings.
 const stageAll stage = -1
 
@@ -72,6 +101,8 @@ func (s stage) label() string {
 		return "In review"
 	case stageMerged:
 		return "Merged"
+	case stageSnoozed:
+		return "Snoozed"
 	}
 	return "Idle"
 }
@@ -93,6 +124,8 @@ func (s stage) short() string {
 		return "Review"
 	case stageMerged:
 		return "Merged"
+	case stageSnoozed:
+		return snoozeIcon
 	}
 	return "Idle"
 }
@@ -111,9 +144,18 @@ func (s stage) style() lipgloss.Style {
 		return styleOK
 	case stageMerged:
 		return styleMerged
+	case stageSnoozed:
+		return snoozedStyle()
 	}
 	return styleIdle
 }
+
+// snoozeIcon is herdr-snooze's badge, on the Snoozed tab.
+const snoozeIcon = "💤"
+
+// snoozedStyle is what's snoozed, and when it wakes: blue, the colour of
+// the 💤 that herdr-snooze puts on it, as herdr-snooze draws it too.
+func snoozedStyle() lipgloss.Style { return lipgloss.NewStyle().Foreground(look.Blue) }
 
 // stageAt is the stage of the i-th listed entry.
 func (m model) stageAt(i int) stage { return stageOf(m.entries[m.order[i]]) }
@@ -168,7 +210,7 @@ func (m model) stageTabs() []stageTab {
 		}
 	}
 	tabs := []stageTab{{stage: stageAll, n: total}}
-	for s := stageNeedsYou; s <= stageMerged; s++ {
+	for s := stageNeedsYou; s <= stageSnoozed; s++ {
 		if counts[s] > 0 || s == m.show {
 			tabs = append(tabs, stageTab{stage: s, n: counts[s]})
 		}
@@ -193,6 +235,8 @@ func (m model) tabBar() (string, []stageTab) {
 			}
 			if short {
 				label = t.stage.short()
+			} else if t.stage == stageSnoozed {
+				label = snoozeIcon + " " + label
 			}
 			n := strconv.Itoa(t.n)
 			var cell string

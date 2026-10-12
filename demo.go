@@ -16,6 +16,7 @@ type demoSource struct {
 	current map[string]bool
 	titles  map[string]string // by pane: the titles agents were renamed to
 	delay   time.Duration     // how long a demo recap "takes"
+	woken   map[string]bool   // by pane: snoozed agents woken in the demo
 }
 
 // errDemo: going to an agent, in the demo, where there's nowhere to go.
@@ -85,7 +86,9 @@ var demoAgents = []demoAgent{
 		recap:   "Paginated the search results with a cursor instead of an offset, and opened the PR. Next, merge it once the search team has looked.",
 	},
 	{
-		agent:   agentInfo{PaneID: "w3:p2", Cwd: "/demo/w3-p2", WorkspaceID: "w3", Agent: "claude", Status: "idle", Title: "Release notes for 2.4", StateChangeSeq: 3},
+		// Snoozed till the platform team is in: herdr-snooze's tokens.
+		agent: agentInfo{PaneID: "w3:p2", Cwd: "/demo/w3-p2", WorkspaceID: "w3", Agent: "claude", Status: "idle", Title: "Release notes for 2.4", StateChangeSeq: 3,
+			Tokens: map[string]string{snoozeMark: "1", snoozeBadge: "💤  Tue 09:00"}},
 		changes: gitChanges{Ahead: 1},
 		session: "0b3c9a51-5d7e-4f7a-9c35-1a2b3c4d5e04", age: 2 * time.Hour, current: true,
 		meta: sessionMeta{Branch: "main", Model: "claude-haiku-4-5-20251001",
@@ -131,6 +134,15 @@ func (d *demoSource) agents() ([]agentInfo, []workspaceInfo, error) {
 		agents[i] = a.agent
 		if t, ok := d.titles[a.agent.PaneID]; ok {
 			agents[i].Title = t
+		}
+		if d.woken[a.agent.PaneID] {
+			tokens := map[string]string{}
+			for k, v := range a.agent.Tokens {
+				if k != snoozeMark && k != snoozeBadge {
+					tokens[k] = v
+				}
+			}
+			agents[i].Tokens = tokens
 		}
 	}
 	return agents, demoWorkspaces, nil
@@ -223,16 +235,28 @@ func (d *demoSource) search(_ context.Context, s claudeSession, words []string) 
 // The demo has no Memex: what's found is listed in the usual order.
 func (d *demoSource) rank(context.Context, string, []string) map[string]float64 { return nil }
 
-// The demo has herdr-github and herdr-linear, so its pull requests and
-// issues look as they would.
+// The demo has herdr-github, herdr-linear and herdr-snooze, so its pull
+// requests, issues and snoozing look as they would.
 func (d *demoSource) plugins() map[string]popupRef {
 	return map[string]popupRef{
 		githubPlugin: {PluginID: githubPlugin, Entrypoint: "picker"},
 		linearPlugin: {PluginID: linearPlugin, Entrypoint: "picker"},
+		snoozePlugin: {PluginID: snoozePlugin, Entrypoint: "picker"},
 	}
 }
 
 func (d *demoSource) open(popupRef) error { return errDemo }
+
+// wake takes the snooze off a demo agent: what herdr-snooze would do.
+func (d *demoSource) wake(paneID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.woken == nil {
+		d.woken = map[string]bool{}
+	}
+	d.woken[paneID] = true
+	return nil
+}
 
 func (d *demoSource) rename(_ string, s claudeSession) error {
 	d.mu.Lock()

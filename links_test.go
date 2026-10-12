@@ -16,7 +16,7 @@ type linkSource struct {
 	*demoSource
 	mu      sync.Mutex
 	opened  []popupRef
-	without bool // herdr-github isn't installed
+	without bool // herdr-github, herdr-linear and herdr-snooze aren't installed
 }
 
 func (l *linkSource) plugins() map[string]popupRef {
@@ -26,6 +26,7 @@ func (l *linkSource) plugins() map[string]popupRef {
 	return map[string]popupRef{
 		githubPlugin: {PluginID: githubPlugin, Entrypoint: "picker", Width: "85%", Height: "80%"},
 		linearPlugin: {PluginID: linearPlugin, Entrypoint: "picker", Width: "80%", Height: "70%"},
+		snoozePlugin: {PluginID: snoozePlugin, Entrypoint: "picker", Width: "44", Height: "16"},
 	}
 }
 
@@ -189,5 +190,120 @@ func TestALinearIssueIsShownOnceAndOpensInTheLinearPlugin(t *testing.T) {
 	if p.PluginID != linearPlugin || p.Env["HERDR_LINEAR_ISSUE"] != "ENG-142" || p.Env["HERDR_LINEAR_CWD"] != "/demo/w1-p4" ||
 		!strings.Contains(p.Env[returnEnv], `"HERDR_RECAP_PANE":"w1:p4"`) {
 		t.Errorf("%+v", p)
+	}
+}
+
+// ctrl+s hands the agent to herdr-snooze's popup: to snooze an awake one,
+// or to wake a snoozed one or change when.
+func TestCtrlSOpensTheSnoozePluginOnTheAgent(t *testing.T) {
+	m, src := linkModel(t, false)
+	if !strings.Contains(ansi.Strip(footerLine(m.footer(), "", 200)), "^s snooze") {
+		t.Error("no key for it in the footer")
+	}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	msg := cmd()
+	if len(src.opened) != 1 {
+		t.Fatalf("opened %v", src.opened)
+	}
+	// At the size it asks for, on this agent, told where to come back to.
+	p := src.opened[0]
+	if p.PluginID != snoozePlugin || p.Entrypoint != "picker" || p.Width != "44" || p.Height != "16" ||
+		p.Env["HERDR_SNOOZE_PANE"] != "w1:p4" || len(p.Env) != 2 {
+		t.Errorf("%+v", p)
+	}
+	var back popupRef
+	if err := json.Unmarshal([]byte(p.Env[returnEnv]), &back); err != nil || back.PluginID != "herdr-recap" ||
+		back.Env[selectEnv] != "w1:p4" {
+		t.Errorf("back %+v %v", back, err)
+	}
+	if _, quit := next.(model).Update(msg); quit == nil || quit() != tea.Quit() {
+		t.Error("didn't close for the other popup")
+	}
+	// A snoozed one is snoozed for a new time there.
+	m = selectPane(m, "w3:p2")
+	if !strings.Contains(ansi.Strip(footerLine(m.footer(), "", 200)), "^w wake   ^s snooze") {
+		t.Errorf("footer %q", ansi.Strip(footerLine(m.footer(), "", 200)))
+	}
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	cmd()
+	if len(src.opened) != 2 || src.opened[1].Env["HERDR_SNOOZE_PANE"] != "w3:p2" {
+		t.Errorf("opened %v", src.opened)
+	}
+}
+
+func TestWithoutTheSnoozePluginCtrlSOnlySaysSo(t *testing.T) {
+	m, src := linkModel(t, true)
+	if strings.Contains(ansi.Strip(footerLine(m.footer(), "", 200)), "^s") {
+		t.Error("a key for it in the footer")
+	}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	if cmd != nil || len(src.opened) != 0 || !strings.Contains(next.(model).flash, snoozePlugin) {
+		t.Errorf("flash %q, opened %v", next.(model).flash, src.opened)
+	}
+	// Nor does the filter take it.
+	if next.(model).filter.Value() != "" {
+		t.Errorf("filter %q", next.(model).filter.Value())
+	}
+}
+
+// siblings stands in for plugin.list: herdr-snooze's popup comes from it,
+// at the size it declares there.
+func TestTheSnoozePopupIsTheOneSiblingsFinds(t *testing.T) {
+	was := siblings
+	t.Cleanup(func() { siblings = was })
+	siblings = func() map[string]popupRef {
+		return map[string]popupRef{snoozePlugin: {PluginID: snoozePlugin, Entrypoint: "picker", Width: "50", Height: "14"}}
+	}
+	to, ok := liveSource{}.plugins()[snoozePlugin]
+	if !ok {
+		t.Fatal("not found")
+	}
+	p := snoozeFor(to, agentInfo{PaneID: "w2:p5"})
+	if p.Width != "50" || p.Height != "14" || p.Env["HERDR_SNOOZE_PANE"] != "w2:p5" ||
+		!strings.Contains(p.Env[returnEnv], `"HERDR_RECAP_PANE":"w2:p5"`) {
+		t.Errorf("%+v", p)
+	}
+}
+
+func TestCtrlWWakesASnoozedAgentWithoutAPopup(t *testing.T) {
+	m, src := linkModel(t, false)
+	// On an awake agent it's the filter's, and there's no wake button.
+	if strings.Contains(ansi.Strip(footerLine(m.footer(), "", 200)), "^w") {
+		t.Error("a wake key on an awake agent")
+	}
+	m.filter.SetValue("two words")
+	m.filter.CursorEnd()
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlW})
+	if got := next.(model).filter.Value(); got != "two " {
+		t.Errorf("ctrl+w on an awake agent: filter %q", got)
+	}
+	m.filter.SetValue("")
+	m.refilter()
+
+	m = selectPane(m, "w3:p2")
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlW})
+	if cmd == nil {
+		t.Fatal("nothing to wake it")
+	}
+	m = settle(t, next.(model), cmd)
+	if len(src.opened) != 0 {
+		t.Errorf("opened a popup: %v", src.opened)
+	}
+	e := m.entries["w3:p2"]
+	if snoozed(e.agent) || stageOf(e) == stageSnoozed || !strings.HasPrefix(m.flash, "Woke ") {
+		t.Errorf("still snoozed: stage %v, flash %q", stageOf(e), m.flash)
+	}
+}
+
+func TestWithoutTheSnoozePluginCtrlWIsTheFilters(t *testing.T) {
+	m, _ := linkModel(t, true)
+	m = selectPane(m, "w3:p2")
+	if strings.Contains(ansi.Strip(footerLine(m.footer(), "", 200)), "^w") {
+		t.Error("a wake key without snooze")
+	}
+	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlW}); cmd != nil {
+		if _, woke := cmd().(wokeMsg); woke {
+			t.Error("woke it without snooze")
+		}
 	}
 }

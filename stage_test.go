@@ -40,6 +40,11 @@ func TestAnAgentsStageComesFromItsStatusThenItsPR(t *testing.T) {
 		{"closed", "idle", pr("pr_state", "closed"), gitChanges{}, stageMerged},
 		{"merged, then edited", "idle", pr("pr_state", "merged"), gitChanges{Files: 1}, stageIdle},
 		{"merged, then committed to", "idle", pr("pr_state", "merged"), gitChanges{Ahead: 1}, stageIdle},
+		{"snoozed", "idle", pr("herdr_snooze", "1", "snoozed", "💤  17:30"), gitChanges{}, stageSnoozed},
+		{"snoozed, asking", "blocked", pr("herdr_snooze", "1"), gitChanges{}, stageSnoozed},
+		{"snoozed, at work", "working", pr("herdr_snooze", "1"), gitChanges{}, stageSnoozed},
+		{"snoozed, its PR merged", "idle", pr("herdr_snooze", "1", "pr_state", "merged"), gitChanges{}, stageSnoozed},
+		{"a badge without the mark", "idle", pr("snoozed", "💤  17:30"), gitChanges{}, stageIdle},
 	} {
 		e := &entry{agent: agentInfo{Status: c.status, Tokens: c.tokens}, changes: c.changes}
 		if got := stageOf(e); got != c.want {
@@ -54,13 +59,14 @@ func TestNewWorkAfterAMergePutsAnAgentBackInProgress(t *testing.T) {
 	e.agent.Tokens = map[string]string{"prs": "#431 merged", "pr_state": "merged"}
 	m.picked = true
 	m.resort("w1:p4")
-	if last := len(m.order) - 1; m.order[last] != "w1:p4" || m.cursor != last {
+	// Last but the snoozed one.
+	if last := len(m.order) - 2; m.order[last] != "w1:p4" || m.cursor != last {
 		t.Fatalf("merged isn't last, selected: %s, cursor %d", paneOrder(m), m.cursor)
 	}
 	// It starts on the next thing: git says there's work in its worktree.
 	next, _ := m.Update(changesMsg{pane: "w1:p4", at: e.branchAt, changes: gitChanges{Files: 3}})
 	m = next.(model)
-	if stageOf(m.entries["w1:p4"]) != stageIdle || m.order[len(m.order)-1] == "w1:p4" {
+	if stageOf(m.entries["w1:p4"]) != stageIdle || m.order[len(m.order)-2] == "w1:p4" {
 		t.Errorf("still listed as merged: %s", paneOrder(m))
 	}
 	if m.selectedPane() != "w1:p4" {
@@ -71,7 +77,7 @@ func TestNewWorkAfterAMergePutsAnAgentBackInProgress(t *testing.T) {
 func TestTheTopOfAScrolledListSaysItsStage(t *testing.T) {
 	m, _ := demoModel(t)
 	m.height = 14             // a few entries at a time
-	m.cursor, m.offset = 5, 5 // the second of the two working
+	m.cursor, m.offset = 4, 4 // the second of the two working
 	lines := strings.Split(ansi.Strip(m.View()), "\n")
 	if got := strings.TrimSpace(lines[listTop]); got != "Working 2" {
 		t.Errorf("the list starts with %q", got)
@@ -79,7 +85,7 @@ func TestTheTopOfAScrolledListSaysItsStage(t *testing.T) {
 	if lines[listTop+1] != "" {
 		t.Errorf("under the heading: %q", lines[listTop+1])
 	}
-	if i, ok := m.entryAt(listTop + 2); !ok || i != 5 {
+	if i, ok := m.entryAt(listTop + 2); !ok || i != 4 {
 		t.Errorf("under the heading is entry %d, %v", i, ok)
 	}
 }
@@ -95,7 +101,7 @@ func TestTheFilterMatchesAStage(t *testing.T) {
 
 func TestAStagesTabListsOnlyItsAgents(t *testing.T) {
 	m, _ := demoModel(t)
-	m.cursor = 4 // the first of the two working
+	m.cursor = 3 // the first of the two working
 	for range 4 {
 		m = press(m, "right") // All, Needs you, Done, Idle, Working
 	}
@@ -121,7 +127,7 @@ func TestAStagesTabListsOnlyItsAgents(t *testing.T) {
 		t.Errorf("after esc twice: showing %d, %s", m.show, paneOrder(m))
 	}
 	// Left from All goes round to the last tab.
-	if m = press(m, "left"); m.show != stageReview {
+	if m = press(m, "left"); m.show != stageSnoozed {
 		t.Errorf("left of All is %s", m.show.label())
 	}
 }
@@ -132,10 +138,12 @@ func TestClickingATabShowsItsStage(t *testing.T) {
 	line := strings.Split(ansi.Strip(m.View()), "\n")[0]
 	for _, tab := range tabs {
 		want := "All"
-		if tab.stage != stageAll {
+		if tab.stage == stageSnoozed {
+			want = snoozeIcon + " " + tab.stage.label()
+		} else if tab.stage != stageAll {
 			want = tab.stage.label()
 		}
-		if got := strings.TrimSpace(line[tab.x0:tab.x1]); !strings.HasPrefix(got, want+" ") {
+		if got := strings.TrimSpace(ansi.Cut(line, tab.x0, tab.x1)); !strings.HasPrefix(got, want+" ") {
 			t.Errorf("cells %d-%d hold %q, want %s", tab.x0, tab.x1, got, want)
 		}
 	}
@@ -159,29 +167,64 @@ func TestAnEmptiedStageKeepsItsTab(t *testing.T) {
 
 func TestTheTabsFitANarrowPopup(t *testing.T) {
 	m, _ := demoModel(t)
-	for _, w := range []int{100, 70, 50} {
+	for _, w := range []int{100, 70, 56} {
 		m.width = w
 		line, tabs := m.tabBar()
 		if got := ansi.StringWidth(line); got > w || tabs[len(tabs)-1].x1 != got {
 			t.Errorf("at %d wide the tabs take %d, the last ending at %d", w, got, tabs[len(tabs)-1].x1)
 		}
 	}
-	if line, _ := m.tabBar(); !strings.Contains(ansi.Strip(line), "Review 1") {
+	if line, _ := m.tabBar(); !strings.Contains(ansi.Strip(line), "Review 1  💤 1") {
 		t.Errorf("not shortened: %q", ansi.Strip(line))
 	}
 }
 
 func TestIdleIsSaidOnlyOfTheIdleStage(t *testing.T) {
 	m, _ := demoModel(t)
-	m.height = 50
+	m.height = 52
+	// The word finds the stage, not the agents in review or snoozed that
+	// are idle too.
+	if got := paneOrder(typeText(m, "idle")); got != "w3:p4" {
+		t.Errorf("idle lists %s", got)
+	}
+	// Woken, the release notes are idle again. A map of its own: the
+	// demo's agents share theirs between tests.
+	m.entries["w3:p2"].agent.Tokens = map[string]string{}
+	m.resort("")
 	v := ansi.Strip(m.View())
 	for _, want := range []string{"docs · idle 2h", "storefront · for 3h"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("view lacks %q:\n%s", want, v)
 		}
 	}
-	// The word finds the stage, not the agent in review that's idle too.
-	if got := paneOrder(typeText(m, "idle")); got != "w3:p2 w3:p4" {
-		t.Errorf("idle lists %s", got)
+}
+
+func TestASnoozedRowSaysWhenItWakes(t *testing.T) {
+	for badge, want := range map[string]string{
+		"💤  17:30":        "until 17:30",
+		"💤  Tue 09:00":    "until Tue 09:00",
+		"zz  2 Jan 15:04": "until 2 Jan 15:04",
+		"  17:30":         "until 17:30", // no badge
+		"17:30":           "until 17:30",
+		"":                "snoozed",
+	} {
+		a := agentInfo{Tokens: map[string]string{snoozeMark: "1", snoozeBadge: badge}}
+		if got := wakeText(a); got != want {
+			t.Errorf("%q: %q, want %q", badge, got, want)
+		}
+	}
+	m, _ := demoModel(t)
+	m.height = 52
+	v := ansi.Strip(m.View())
+	if !strings.Contains(v, "Release notes for 2.4") || !strings.Contains(v, "docs · until Tue 09:00") ||
+		strings.Contains(v, "idle 2h") {
+		t.Errorf("view:\n%s", v)
+	}
+	// Last, with a tab of its own, which the filter finds by name.
+	if last := m.order[len(m.order)-1]; last != "w3:p2" {
+		t.Errorf("last is %s", last)
+	}
+	if tabs := m.stageTabs(); tabs[len(tabs)-1].stage != stageSnoozed {
+		t.Errorf("last tab %s", tabs[len(tabs)-1].stage.label())
 	}
 }

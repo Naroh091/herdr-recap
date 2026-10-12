@@ -497,6 +497,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.scrollTo()
 		return m, nil
 
+	case wokeMsg:
+		if msg.err != nil {
+			m.err = "Couldn't wake it: " + msg.err.Error()
+			return m, nil
+		}
+		m.flash = "Woke " + msg.title
+		return m, m.loadAgents()
+
 	case openedMsg:
 		if errors.Is(msg.err, errDemo) {
 			m.flash = "In the demo that's as far as it goes: the pull requests are made up."
@@ -921,6 +929,14 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openLink(githubPlugin)
 	case "ctrl+l":
 		return m.openLink(linearPlugin)
+	case "ctrl+s":
+		return m.openSnooze()
+	case "ctrl+w":
+		// Wake, on a snoozed agent with herdr-snooze there to do it.
+		// Anywhere else it's the filter's: delete a word.
+		if e := m.selected(); e != nil && snoozed(e.agent) && m.hasSnooze() {
+			return m.wake(e)
+		}
 	}
 
 	// Anything else edits the filter.
@@ -1052,6 +1068,41 @@ func (m model) openLink(plugin string) (tea.Model, tea.Cmd) {
 		ref = linearFor(to, e.agent)
 	}
 	return m, func() tea.Msg { return openedMsg{src.open(ref)} }
+}
+
+// openSnooze closes this popup for herdr-snooze's, on the selected agent:
+// to snooze it, or with it snoozed, to wake it or change when. It comes back
+// here when that one's closed, or once it has snoozed or woken it.
+func (m model) openSnooze() (tea.Model, tea.Cmd) {
+	e := m.selected()
+	if e == nil {
+		return m, nil
+	}
+	to, ok := m.links[snoozePlugin]
+	if !ok {
+		m.flash = "Snoozing is the Snooze plugin's (" + snoozePlugin + "), which isn't installed."
+		return m, nil
+	}
+	src, ref := m.src, snoozeFor(to, e.agent)
+	return m, func() tea.Msg { return openedMsg{src.open(ref)} }
+}
+
+func (m model) hasSnooze() bool {
+	_, ok := m.links[snoozePlugin]
+	return ok
+}
+
+// wokeMsg is a snooze ended from here: title is the agent's, to say so.
+type wokeMsg struct {
+	title string
+	err   error
+}
+
+// wake ends the selected agent's snooze now, without a popup: it leaves the
+// Snoozed tab, and the Agents panel, as soon as herdr-snooze has done it.
+func (m model) wake(e *entry) (tea.Model, tea.Cmd) {
+	src, pane, name := m.src, e.agent.PaneID, shorten(title(e.agent), 40)
+	return m, func() tea.Msg { return wokeMsg{name, src.wake(pane)} }
 }
 
 // suggestion is the better title on offer for an agent: the one written
@@ -1485,7 +1536,12 @@ func (m model) viewEntry(e *entry, selected bool) []string {
 			}
 		}
 	}
-	if s := m.inState(e); s != "" {
+	// A snoozed agent says when it wakes, in snooze's colour, in place of
+	// how long it's been as it is: it's not waiting on you till then.
+	wake := ""
+	if snoozed(e.agent) {
+		wake = snoozedStyle().Render(wakeText(e.agent))
+	} else if s := m.inState(e); s != "" {
 		right = append(right, s)
 	}
 	left := " " + agentMark(e.agent.Status, m.spin.View()) + " "
@@ -1494,6 +1550,12 @@ func (m model) viewEntry(e *entry, selected bool) []string {
 		style = styleWorking.Bold(true)
 	}
 	rightText := styleDim.Render(strings.Join(right, " · "))
+	switch {
+	case wake != "" && len(right) > 0:
+		rightText += styleDim.Render(" · ") + wake
+	case wake != "":
+		rightText = wake
+	}
 	room := max(1, w-lipgloss.Width(left)-lipgloss.Width(rightText)-2)
 	lines := []string{fitRow(left, style.Render(shorten(title(e.agent), room)), rightText, w)}
 	// A better title than a poor one, right under it (the mouse counts on that).
@@ -1736,7 +1798,8 @@ func shownTokens(tokens map[string]string, only []string) []shownToken {
 	} else {
 		pr, prs, issue := tokens["pr"] != "", tokens["prs"] != "", tokens["issue"] != ""
 		for k := range tokens {
-			if (k == "pr" && prs) || (strings.HasPrefix(k, "pr_") && (pr || prs)) || (strings.HasPrefix(k, "issue_") && issue) || k == pastPRs {
+			if (k == "pr" && prs) || (strings.HasPrefix(k, "pr_") && (pr || prs)) || (strings.HasPrefix(k, "issue_") && issue) ||
+				k == pastPRs || k == snoozeMark || k == snoozeBadge {
 				continue
 			}
 			names = append(names, k)
@@ -1840,6 +1903,13 @@ func (m model) footer() []hint {
 	}
 	// By kind, so the colours sit together: go, act, view, leave.
 	hs := []hint{{"enter go to agent", "enter", hintGo}, {"tab reply", "tab", hintAct}}
+	// ^s only with herdr-snooze there to do it.
+	if _, ok := m.links[snoozePlugin]; ok && m.selected() != nil {
+		if snoozed(m.selected().agent) {
+			hs = append(hs, hint{"^w wake", "ctrl+w", hintAct})
+		}
+		hs = append(hs, hint{"^s snooze", "ctrl+s", hintAct})
+	}
 	// ^r takes the title on offer, or with none asks for one.
 	if e := m.selected(); e != nil && e.renaming == "" && suggestion(e) != "" {
 		hs = append(hs, hint{"^r rename", "ctrl+r", hintAct}, hint{"^x ignore", "ctrl+x", hintView})

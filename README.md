@@ -7,7 +7,7 @@ remembering what each one was doing is the pain. herdr-recap is a
 [herdr](https://herdr.dev) popup that tells you, per agent, where it got to
 and whose move it is.
 
-![The popup on the demo's agents, grouped by stage under tabs: one that needs you, one done, two idle, two working, one in review](docs/images/agents.png)
+![The popup on the demo's agents, grouped by stage under tabs: one that needs you, one done, one idle, two working, one in review and one snoozed](docs/images/agents.png)
 
 - **Recaps are written while you're away.** Claude Code's own `/recap`, or
   the agent's equivalent, run in a throwaway fork, so your agent's
@@ -16,7 +16,8 @@ and whose move it is.
   finished or blocked for a few minutes without you looking, while its
   prompt cache is still warm.
 - **Grouped by whose move it is.** Needs you, Done, Needs fixing, Idle,
-  Working, In review and Merged, shown as tabs with counts.
+  Working, In review and Merged, shown as tabs with counts; then Snoozed,
+  with herdr-snooze.
 - **See what a blocked agent wants.** The pending question or command is
   right on the row.
 - **Reply without leaving the popup.** Tab, type, enter; or enter or click
@@ -37,15 +38,16 @@ and whose move it is.
 
 ## Works with the other herdr plugins
 
-This is one of three plugins that are useful alone and better together.
-Install [herdr-github](https://github.com/mrolafsson/herdr-github) or [herdr-linear](https://github.com/mrolafsson/herdr-linear) alongside it and they find each other:
+This is one of four plugins that are useful alone and better together.
+Install [herdr-github](https://github.com/mrolafsson/herdr-github), [herdr-linear](https://github.com/mrolafsson/herdr-linear) or [herdr-snooze](https://github.com/mrolafsson/herdr-snooze) alongside it and they find each other:
 there is nothing to configure.
 
 | Plugin | What it adds to the others |
 | --- | --- |
-| **[herdr-recap](https://github.com/mrolafsson/herdr-recap)** (this one) | Every agent in one list. An agent's pull request and its Linear issue are links there: a click, or `ctrl+g` / `ctrl+l`, opens it in the plugin it belongs to. |
+| **[herdr-recap](https://github.com/mrolafsson/herdr-recap)** (this one) | Every agent in one list. An agent's pull request and its Linear issue are links there: a click, or `ctrl+g` / `ctrl+l`, opens it in the plugin it belongs to. Snoozed agents have a tab of their own: `ctrl+s` snoozes an agent, in Snooze's popup, and `ctrl+w` wakes one. |
 | [herdr-github](https://github.com/mrolafsson/herdr-github) | Tags every space and agent with its branch's pull request (`#482 ✓ approved`), which Recap shows and groups its agents by. Opens straight on an agent's PR when Recap asks. |
 | [herdr-linear](https://github.com/mrolafsson/herdr-linear) | Tags every space and agent with the Linear issue its branch is named for (`ENG-142 In Progress`), which Recap shows. Opens straight on that issue when Recap asks. |
+| [herdr-snooze](https://github.com/mrolafsson/herdr-snooze) | Hides an agent, or a whole space, from herdr's Agents panel until a time you pick. Tags each snoozed agent with when it wakes (`💤 17:30`), which Recap shows. Opens straight on an agent when Recap asks, and opens Recap on one with `r`. |
 
 - **Auto-discovery.** Each plugin asks herdr which others are installed and
   enabled. A link only appears when the plugin behind it is there; without
@@ -54,9 +56,9 @@ there is nothing to configure.
   following a link turns the open popup into the other plugin's, in place and
   without a flicker, and `esc` there brings you back to where you were.
 - **Shared look.** A title, a branch, a pull request and a key are
-  drawn the same in all three, in herdr's theme colours.
+  drawn the same in all four, in herdr's theme colours.
 
-See [With the GitHub and Linear plugins](#with-the-github-and-linear-plugins) for the keys and the convention behind it.
+See [With the GitHub, Linear and Snooze plugins](#with-the-github-linear-and-snooze-plugins) for the keys and the convention behind it.
 
 ## Why
 
@@ -90,7 +92,7 @@ Open it (`prefix+alt+r`) and read down. Each agent is a few lines:
   it's idle with a PR in review or merged.
 - **Grouped by where the work has got to.** Each group has a heading and a
   count, in the order of whose move it is: yours first, then the agent's,
-  then a reviewer's.
+  then a reviewer's, and last the ones you've snoozed.
 
   | Stage | Which agents |
   | --- | --- |
@@ -101,6 +103,7 @@ Open it (`prefix+alt+r`) and read down. Each agent is a few lines:
   | **Working** | at work |
   | **In review** | idle, its PR open with nothing wrong with it |
   | **Merged** | idle, its PR merged or closed and nothing new in its worktree |
+  | **Snoozed** | hidden by [herdr-snooze](https://github.com/mrolafsson/herdr-snooze) until a time, whatever it's doing |
 
   What an agent is doing right now wins over its PR: start one on the next
   thing after a merge and it's *Working*, and between turns *Idle* once it
@@ -223,6 +226,8 @@ agents: no Claude calls, safe to screenshot.
 | `ctrl+x` | ignore the suggested title: it isn't offered again |
 | `ctrl+g`, click on the PR | open that agent's pull request in the GitHub plugin's popup; `esc` there comes back here |
 | `ctrl+l`, click on the issue | open that agent's Linear issue in the Linear plugin's popup; `esc` there comes back here |
+| `ctrl+s` | snooze that agent in the Snooze plugin's popup (a snoozed one, for a new time); `esc` there comes back here |
+| `ctrl+w` | on a snoozed agent, wake it now, no popup; anywhere else it deletes a word of the filter |
 | `←` / `→` | the stage before / after, round the ends; a click on a tab shows it |
 | `esc` | clear the filter, then back to *All*, then close |
 
@@ -260,10 +265,11 @@ the prompt cache, so that costs several times what it does alongside a recap.
 A rename doesn't put a recap out of date: only something said in the
 conversation does.
 
-## With the GitHub and Linear plugins
+## With the GitHub, Linear and Snooze plugins
 
-Recap finds [herdr-github](https://github.com/mrolafsson/herdr-github) and
-[herdr-linear](https://github.com/mrolafsson/herdr-linear) by itself when
+Recap finds [herdr-github](https://github.com/mrolafsson/herdr-github),
+[herdr-linear](https://github.com/mrolafsson/herdr-linear) and
+[herdr-snooze](https://github.com/mrolafsson/herdr-snooze) by itself when
 they're installed and enabled: nothing to set up.
 
 - **A pull request** (`#431 ✓ approved`, from herdr-github's labels) is
@@ -271,17 +277,25 @@ they're installed and enabled: nothing to set up.
 - **A Linear issue** (`ENG-142 In Progress`, from herdr-linear's labels: the
   issue the agent's branch is named for) is underlined. A click on it, or
   `ctrl+l`, opens it in the Linear popup.
+- **A snoozed agent** (hidden from herdr's Agents panel by herdr-snooze) is
+  listed under *Snoozed*, the last tab, whatever it's doing: you've said it
+  can wait. The right of its row says when it wakes (*until 17:30*), in
+  snooze's colour. `ctrl+s` opens the Snooze popup on the selected agent, to
+  snooze it (a snoozed one, for a new time); once it's done, Recap is back on
+  the same agent. `ctrl+w` on a snoozed agent wakes it there and then, no
+  popup: it's back in its own tab, and in herdr's Agents panel.
 
 herdr shows one popup at a time, so the popup that's open becomes the other
 plugin's, in place (it keeps Recap's size and title), and `esc` there brings
 Recap back on the agent you left. Without those plugins
-the same text is there, as text.
+the same text is there, as text, and there's no `ctrl+s` or `ctrl+w`.
 
 The convention is small, and any plugin can use it. A popup is opened with
 `HERDR_POPUP_RETURN` in its environment: the popup to open again when it's
 closed, as JSON in the shape of herdr's `plugin.pane.open`
 (`{"plugin_id", "entrypoint", "width", "height", "env"}`). Recap opens on a
-pane when `HERDR_RECAP_PANE` names one.
+pane when `HERDR_RECAP_PANE` names one, and Snooze when `HERDR_SNOOZE_PANE`
+does.
 
 ## Other agents
 
@@ -388,8 +402,8 @@ Optional: `config.json` in the plugin's config directory
 Colours come from herdr's theme: the title in its brightest text, then the
 recap, then the details, each kind in its own colour.
 
-The herdr plugins (herdr-github, herdr-linear, herdr-recap) draw the same
-thing the same way, from one shared file (`look.go`):
+The herdr plugins (herdr-github, herdr-linear, herdr-recap, herdr-snooze)
+draw the same thing the same way, from one shared file (`look.go`):
 
 | what                 | how it's drawn |
 |----------------------|----------------|

@@ -13,6 +13,7 @@ func TestSwapEnvIsTheOtherPluginsEnvironment(t *testing.T) {
 		"HERDR_PLUGIN_ID=herdr-recap", "HERDR_PLUGIN_ROOT=/plugins/herdr-recap", "HERDR_PLUGIN_ENTRYPOINT_ID=picker",
 		"HERDR_PLUGIN_CONFIG_DIR=/cfg/plugins/config/herdr-recap", "HERDR_PLUGIN_STATE_DIR=/state/plugins/herdr-recap",
 		"HERDR_PLUGIN_CONTEXT_JSON={}", "HERDR_RECAP_PANE=w1:p4", "HERDR_GITHUB_PANE=old", returnEnv + "=old",
+		"HERDR_SNOOZE_PANE=w1:p2", "HERDR_LINEAR_ISSUE=ENG-1",
 	}
 	p := popupRef{PluginID: "herdr-github", Entrypoint: "picker", Env: map[string]string{"HERDR_GITHUB_PANE": "w1:p4", returnEnv: "{}"}}
 	got := swapEnv(env, "herdr-recap", p, "/plugins/herdr-github")

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.0 - 2026-10-12
+
+- **Snoozed agents have a stage of their own.** An agent that
+  [herdr-snooze](https://github.com/mrolafsson/herdr-snooze) has hidden
+  from herdr's Agents panel is listed under *Snoozed*, the last tab,
+  whatever it's doing: you've said it can wait. The right of its row says
+  when it wakes (*until 17:30*), in snooze's colour, and its tokens aren't
+  listed under its title. The filter finds them by `snoozed`.
+- **`ctrl+s` snoozes the selected agent**, in herdr-snooze's popup (a
+  snoozed one, for a new time). `esc` there, or snoozing it, comes back to
+  Recap on the same agent.
+- **`ctrl+w` wakes a snoozed agent**, there and then, with no popup. On any
+  other agent it's still the filter's: it deletes a word. Both keys are only
+  there with herdr-snooze installed and enabled.
+- **The demo has a snoozed agent**, and the screenshots its tab.
+
 ## 0.6.1 - 2026-10-12
 
 - **"Recap" is no longer written before the tabs**: the popup's border

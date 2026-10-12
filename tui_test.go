@@ -65,9 +65,9 @@ func paneOrder(m model) string { return strings.Join(m.order, " ") }
 
 func TestWhatNeedsYouComesFirst(t *testing.T) {
 	m, _ := demoModel(t)
-	// blocked, done, the idle ones with no PR out, working (two, in sidebar
-	// order: storefront, billing), then the one in review
-	if got := paneOrder(m); got != "w2:p1 w1:p3 w3:p2 w3:p4 w1:p1 w2:p3 w1:p4" {
+	// blocked, done, the idle one with no PR out, working (two, in sidebar
+	// order: storefront, billing), the one in review, then the snoozed one
+	if got := paneOrder(m); got != "w2:p1 w1:p3 w3:p4 w1:p1 w2:p3 w1:p4 w3:p2" {
 		t.Errorf("order %s", got)
 	}
 }
@@ -95,15 +95,15 @@ func TestRowsSayWhyThereIsNoRecap(t *testing.T) {
 
 func TestTheViewShowsStatusTitleAndRecap(t *testing.T) {
 	m, _ := demoModel(t)
-	m.height = 50 // room for every agent and its stage's heading
+	m.height = 52 // room for every agent and its stage's heading
 	v := ansi.Strip(m.View())
 	for _, want := range []string{
-		"All 7  Needs you 1  Done 1  Idle 2  Working 2  In review 1",
-		"Needs you 1", "Done 1", "Idle 2", "Working 2", "In review 1",
+		"All 7  Needs you 1  Done 1  Idle 1  Working 2  In review 1  💤 Snoozed 1",
+		"Needs you 1", "Done 1", "Idle 1", "Working 2", "In review 1", "Snoozed 1",
 		"◉ Move billing webhooks to v2 events", "billing · waiting 2m",
 		"billing/webhooks-v2 · 6 files +214 −58 ↑2 · 4/5 tasks · BIL-207 In Progress · #412",
 		"? Run npm run migrate -- --env staging",
-		"storefront · done 12m", "storefront · working 18m", "docs · idle 2h",
+		"storefront · done 12m", "storefront · working 18m", "docs · until Tue 09:00",
 		"settings-dark-mode · 14 files +530 −121 · 3/7 tasks", "main · ↑1", "codex · #415",
 		"opus 5.5 · acceptEdits",
 		"● Flaky checkout e2e test", "✓ Release notes for 2.4",
@@ -121,7 +121,7 @@ func TestTheViewShowsStatusTitleAndRecap(t *testing.T) {
 
 func TestTheCursorFollowsItsAgentWhenTheOrderChanges(t *testing.T) {
 	m, _ := demoModel(t)
-	m.move(4) // w1:p1, working
+	m.move(3) // w1:p1, working
 	agents, ws, _ := m.src.agents()
 	for i := range agents {
 		if agents[i].PaneID == "w1:p1" {
@@ -860,6 +860,18 @@ func TestTypingFiltersTheList(t *testing.T) {
 	}
 }
 
+// herdr-snooze's tokens are said by the row its own way, not as tokens,
+// unless config.json's tokens name them.
+func TestSnoozesTokensAreNotListed(t *testing.T) {
+	tokens := map[string]string{"herdr_snooze": "1", "snoozed": "💤  17:30", "pr": "#9"}
+	if got := strings.Join(tokenValues(tokens, nil), " "); got != "#9" {
+		t.Errorf("shown %q", got)
+	}
+	if got := strings.Join(tokenValues(tokens, []string{"snoozed"}), " "); got != "💤  17:30" {
+		t.Errorf("named, shown %q", got)
+	}
+}
+
 func TestTheFilterMatchesWhatARowShows(t *testing.T) {
 	for q, want := range map[string]string{
 		"needs you":     "w2:p1",       // a blocked agent, as the header puts it
@@ -867,7 +879,8 @@ func TestTheFilterMatchesWhatARowShows(t *testing.T) {
 		"#415":          "w2:p3",       // a token
 		"SETTINGS-dark": "w1:p1",       // the branch, in any case
 		"upgrade":       "w3:p2",       // the recap
-		"docs":          "w3:p2 w3:p4", // the space
+		"docs":          "w3:p4 w3:p2", // the space
+		"snoozed":       "w3:p2",       // the stage
 	} {
 		m, _ := demoModel(t)
 		if got := paneOrder(typeText(m, q)); got != want {

@@ -37,12 +37,19 @@ func TestWriteDemoScreens(t *testing.T) {
 	useTheme(&catppuccin)
 	t.Cleanup(func() { useTheme(nil) })
 	m, demo := demoModel(t)
-	m.width, m.height = 100, 51
-	// With the GitHub and Linear plugins installed, as the demo has them.
+	m.width, m.height = 100, 53
+	// With the GitHub, Linear and Snooze plugins installed, as the demo has them.
 	m.links = demo.plugins()
 
 	// Coming back: what needs you first, what each agent got to.
 	save("agents", m)
+
+	// The Snoozed tab, on the agent snoozed till Tuesday: for herdr-snooze's
+	// README as much as this one's.
+	snoozed := selectPane(m, "w3:p2")
+	snoozed.showStage(stageSnoozed)
+	snoozed.height = 14
+	save("snoozed", snoozed)
 
 	// Answering one without leaving the list.
 	reply := press(press(m, "down"), "tab")
@@ -75,7 +82,7 @@ func TestWriteDemoScreens(t *testing.T) {
 		src.recaps[id] = r
 	}
 	titles := newModel(context.Background(), src)
-	titles.width, titles.height = 100, 53
+	titles.width, titles.height = 100, 55
 	titles.now = func() time.Time { return src.started }
 	titles = selectPane(settle(t, titles, titles.loadAgents()), "w1:p3")
 	// Asked of an agent at work: it's renamed when it's done.
