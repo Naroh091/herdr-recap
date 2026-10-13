@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1 - 2026-10-13
+
+- **herdr-file-transfer joins the plugins that work together.** The README's
+  table has it: files between the machine you're at and the server, and the
+  files a new Linear issue attaches.
+
 ## 0.8.0 - 2026-10-13
 
 - **What just woke.** An agent that herdr-snooze woke by itself (its time
