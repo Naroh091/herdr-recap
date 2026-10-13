@@ -207,6 +207,8 @@ func TestASnoozedRowSaysWhenItWakes(t *testing.T) {
 		"  17:30":         "until 17:30", // no badge
 		"17:30":           "until 17:30",
 		"":                "snoozed",
+		"💤  till done":    "till done", // until something happens: as it says
+		"💤  till merged":  "till merged",
 	} {
 		a := agentInfo{Tokens: map[string]string{snoozeMark: "1", snoozeBadge: badge}}
 		if got := wakeText(a); got != want {

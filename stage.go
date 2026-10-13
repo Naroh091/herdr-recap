@@ -72,14 +72,18 @@ func snoozed(a agentInfo) bool { return a.Tokens[snoozeMark] != "" }
 // wakeText is when a snoozed agent wakes, for its row: "until 17:30". The
 // badge before the time is left out: the stage already says it's snoozed,
 // and an emoji's width is the terminal's guess (and freeze's font has none).
-// Just "snoozed" when it doesn't say when.
+// Just "snoozed" when it doesn't say when. A snooze until something
+// happens says so itself ("till done", "till merged"), and is shown as it is.
 func wakeText(a agentInfo) string {
 	v := strings.TrimSpace(a.Tokens[snoozeBadge])
 	if _, at, ok := strings.Cut(v, "  "); ok {
 		v = strings.TrimSpace(at)
 	}
-	if v == "" {
+	switch {
+	case v == "":
 		return "snoozed"
+	case strings.HasPrefix(v, "till "):
+		return v
 	}
 	return "until " + v
 }

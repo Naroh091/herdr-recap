@@ -47,7 +47,7 @@ there is nothing to configure.
 | **[herdr-recap](https://github.com/mrolafsson/herdr-recap)** (this one) | Every agent in one list. An agent's pull request and its Linear issue are links there: a click, or `ctrl+g` / `ctrl+l`, opens it in the plugin it belongs to. Snoozed agents have a tab of their own: `ctrl+s` snoozes an agent, in Snooze's popup, and `ctrl+w` wakes one. |
 | [herdr-github](https://github.com/mrolafsson/herdr-github) | Tags every space and agent with its branch's pull request (`#482 ✓ approved`), which Recap shows and groups its agents by. Opens straight on an agent's PR when Recap asks. |
 | [herdr-linear](https://github.com/mrolafsson/herdr-linear) | Tags every space and agent with the Linear issue its branch is named for (`ENG-142 In Progress`), which Recap shows. Opens straight on that issue when Recap asks. |
-| [herdr-snooze](https://github.com/mrolafsson/herdr-snooze) | Hides an agent, or a whole space, from herdr's Agents panel until a time you pick. Tags each snoozed agent with when it wakes (`💤 17:30`), which Recap shows. Opens straight on an agent when Recap asks, and opens Recap on one with `r`. |
+| [herdr-snooze](https://github.com/mrolafsson/herdr-snooze) | Hides an agent, or a whole space, from herdr's Agents panel until a time you pick, or until the agent's done or its pull request is merged (from herdr-github's labels). Tags each snoozed agent with when it wakes (`💤 17:30`, `💤 till done`), which Recap shows. Opens straight on an agent when Recap asks, and opens Recap on one with `r`. |
 
 - **Auto-discovery.** Each plugin asks herdr which others are installed and
   enabled. A link only appears when the plugin behind it is there; without
@@ -279,10 +279,11 @@ they're installed and enabled: nothing to set up.
   `ctrl+l`, opens it in the Linear popup.
 - **A snoozed agent** (hidden from herdr's Agents panel by herdr-snooze) is
   listed under *Snoozed*, the last tab, whatever it's doing: you've said it
-  can wait. The right of its row says when it wakes (*until 17:30*), in
-  snooze's colour. `ctrl+s` opens the Snooze popup on the selected agent, to
-  snooze it (a snoozed one, for a new time); once it's done, Recap is back on
-  the same agent. `ctrl+w` on a snoozed agent wakes it there and then, no
+  can wait. The right of its row says when it wakes (*until 17:30*), or
+  what it's waiting for (*till done*, *till merged*), in snooze's colour.
+  `ctrl+s` opens the Snooze popup on the selected agent, to snooze it (a
+  snoozed one, for a new time); once it's done, Recap is back on the same
+  agent. `ctrl+w` on a snoozed agent wakes it there and then, no
   popup: it's back in its own tab, and in herdr's Agents panel.
 
 herdr shows one popup at a time, so the popup that's open becomes the other

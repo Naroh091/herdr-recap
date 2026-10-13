@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1 - 2026-10-13
+
+- **A snooze until something happens says so**: an agent herdr-snooze has
+  hidden till it's done, or till its pull request is merged, reads *till
+  done* or *till merged* on its row, not a time.
+
 ## 0.7.0 - 2026-10-12
 
 - **Snoozed agents have a stage of their own.** An agent that
