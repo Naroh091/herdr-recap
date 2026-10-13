@@ -484,6 +484,13 @@ don't come into it.
 - *It lists only some of my agents*: it shows the herdr it's installed in.
   Agents on another machine you've connected in herdr's sidebar need the
   plugin installed there, and appear in that machine's popup.
+- *A tab's icon is a box*: the Snoozed and Just woke tabs carry
+  herdr-snooze's emoji (💤, ⏰), which your terminal draws from an emoji
+  font. Without one (common on a minimal server) they show as a box (□) or
+  a blank. The full tab names still read; in a popup too narrow for them,
+  where a tab is only its icon and count, those two can't be told apart.
+  An emoji font (Noto Color Emoji, `fonts-noto-color-emoji` on Linux) fixes
+  it, or a wider popup.
 - *Couldn't find its conversation*: the plugin reads Claude's process to find
   its session (its `CLAUDE_CONFIG_DIR` and `sessions/<pid>.json`). A Claude
   Code too old to write that file, or one running as another user, can't be
