@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0 - 2026-10-13
+
+- **What just woke.** An agent that herdr-snooze woke by itself (its time
+  was up, or it was done) says so on its row, `woke 16:32 · it's done`,
+  and has a tab of its own, *⏰ Just woke*, beside Snoozed, until you've
+  been to it. In All it stays under its stage (Done, Needs you…). When the
+  tabs don't fit even shortened, they close up to a space apart.
+
 ## 0.7.1 - 2026-10-13
 
 - **A snooze until something happens says so**: an agent herdr-snooze has

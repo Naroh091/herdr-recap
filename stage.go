@@ -69,6 +69,25 @@ const snoozeMark, snoozeBadge = "herdr_snooze", "snoozed"
 // snoozed: herdr-snooze has hidden the agent until a time.
 func snoozed(a agentInfo) bool { return a.Tokens[snoozeMark] != "" }
 
+// snoozeWoke is herdr-snooze's token on an agent that woke by itself lately
+// (its "Just woke" list): when, and why ("14:05 · it's done"). snoozeWokeBadge
+// is its ⏰ for the Agents panel. Neither is listed among a row's tokens.
+const snoozeWoke, snoozeWokeBadge = "snooze_woke", "woke"
+
+// justWoke: herdr-snooze woke the agent by itself a little while ago, and
+// you haven't been to it since.
+func justWoke(a agentInfo) bool { return a.Tokens[snoozeWoke] != "" }
+
+// inTab is whether the tab for stage s lists e: its own stage's, or the
+// Just woke tab's, which lists what herdr-snooze woke by itself lately,
+// whatever stage it's at.
+func inTab(e *entry, s stage) bool {
+	if s == stageWoke {
+		return justWoke(e.agent)
+	}
+	return s == stageAll || stageOf(e) == s
+}
+
 // wakeText is when a snoozed agent wakes, for its row: "until 17:30". The
 // badge before the time is left out: the stage already says it's snoozed,
 // and an emoji's width is the terminal's guess (and freeze's font has none).
@@ -89,7 +108,15 @@ func wakeText(a agentInfo) string {
 }
 
 // stageAll is the tab that lists every stage, grouped under headings.
-const stageAll stage = -1
+// stageWoke is the Just woke tab: not a stage an agent is at (one that just
+// woke is also done, or needs you…), only a tab, beside Snoozed.
+const (
+	stageAll  stage = -1
+	stageWoke stage = -2
+)
+
+// wokeIcon is herdr-snooze's badge on what just woke, on the Just woke tab.
+const wokeIcon = "⏰"
 
 func (s stage) label() string {
 	switch s {
@@ -107,6 +134,8 @@ func (s stage) label() string {
 		return "Merged"
 	case stageSnoozed:
 		return "Snoozed"
+	case stageWoke:
+		return "Just woke"
 	}
 	return "Idle"
 }
@@ -130,6 +159,8 @@ func (s stage) short() string {
 		return "Merged"
 	case stageSnoozed:
 		return snoozeIcon
+	case stageWoke:
+		return wokeIcon
 	}
 	return "Idle"
 }
@@ -150,6 +181,8 @@ func (s stage) style() lipgloss.Style {
 		return styleMerged
 	case stageSnoozed:
 		return snoozedStyle()
+	case stageWoke:
+		return styleOK
 	}
 	return styleIdle
 }
@@ -210,11 +243,17 @@ func (m model) stageTabs() []stageTab {
 	for _, e := range m.entries {
 		if m.matches(e) {
 			counts[stageOf(e)]++
+			if justWoke(e.agent) {
+				counts[stageWoke]++
+			}
 			total++
 		}
 	}
 	tabs := []stageTab{{stage: stageAll, n: total}}
 	for s := stageNeedsYou; s <= stageSnoozed; s++ {
+		if s == stageSnoozed && (counts[stageWoke] > 0 || m.show == stageWoke) {
+			tabs = append(tabs, stageTab{stage: stageWoke, n: counts[stageWoke]})
+		}
 		if counts[s] > 0 || s == m.show {
 			tabs = append(tabs, stageTab{stage: s, n: counts[s]})
 		}
@@ -229,7 +268,9 @@ func (m model) tabBar() (string, []stageTab) {
 	tabs := m.stageTabs()
 	var line string
 	// No name before them: the popup's border has it.
-	for _, short := range []bool{false, true} {
+	// Full labels; then short ones; then short ones a space apart, not two.
+	for pass := range 3 {
+		short, tight := pass > 0, pass > 1
 		line = " "
 		x := lipgloss.Width(line)
 		for i, t := range tabs {
@@ -241,10 +282,14 @@ func (m model) tabBar() (string, []stageTab) {
 				label = t.stage.short()
 			} else if t.stage == stageSnoozed {
 				label = snoozeIcon + " " + label
+			} else if t.stage == stageWoke {
+				label = wokeIcon + " " + label
 			}
 			n := strconv.Itoa(t.n)
 			var cell string
 			switch {
+			case t.stage != m.show && tight:
+				cell = style.UnsetUnderline().Render(label) + styleDim.Render(" "+n) + " "
 			case t.stage != m.show:
 				cell = " " + style.UnsetUnderline().Render(label) + styleDim.Render(" "+n) + " "
 			case t.stage == stageAll:

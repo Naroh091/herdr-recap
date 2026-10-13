@@ -7,7 +7,7 @@ remembering what each one was doing is the pain. herdr-recap is a
 [herdr](https://herdr.dev) popup that tells you, per agent, where it got to
 and whose move it is.
 
-![The popup on the demo's agents, grouped by stage under tabs: one that needs you, one done, one idle, two working, one in review and one snoozed](docs/images/agents.png)
+![The popup on the demo's agents, grouped by stage under tabs: one that needs you, one done, one idle, two working, one in review, one that just woke and one snoozed](docs/images/agents.png)
 
 - **Recaps are written while you're away.** Claude Code's own `/recap`, or
   the agent's equivalent, run in a throwaway fork, so your agent's
@@ -103,6 +103,7 @@ Open it (`prefix+alt+r`) and read down. Each agent is a few lines:
   | **Working** | at work |
   | **In review** | idle, its PR open with nothing wrong with it |
   | **Merged** | idle, its PR merged or closed and nothing new in its worktree |
+  | **Just woke** | woken by [herdr-snooze](https://github.com/mrolafsson/herdr-snooze) by itself lately, and not yet looked at: a tab, not a stage (in All it's under its own) |
   | **Snoozed** | hidden by [herdr-snooze](https://github.com/mrolafsson/herdr-snooze) until a time, whatever it's doing |
 
   What an agent is doing right now wins over its PR: start one on the next
@@ -281,6 +282,9 @@ they're installed and enabled: nothing to set up.
   listed under *Snoozed*, the last tab, whatever it's doing: you've said it
   can wait. The right of its row says when it wakes (*until 17:30*), or
   what it's waiting for (*till done*, *till merged*), in snooze's colour.
+  One that Snooze woke by itself lately says so on its row (*woke 16:32 ·
+  it's done*), and is listed under *⏰ Just woke*, a tab beside Snoozed,
+  until you've been to it.
   `ctrl+s` opens the Snooze popup on the selected agent, to snooze it (a
   snoozed one, for a new time); once it's done, Recap is back on the same
   agent. `ctrl+w` on a snoozed agent wakes it there and then, no

@@ -55,7 +55,9 @@ var demoAgents = []demoAgent{
 		recap:   "Moving the billing webhooks to v2 events: handlers and tests are done. Waiting on you to approve running the migration against staging.",
 	},
 	{
-		agent:   agentInfo{PaneID: "w1:p3", Cwd: "/demo/w1-p3", WorkspaceID: "w1", Agent: "claude", Status: "done", Title: "Flaky checkout e2e test", StateChangeSeq: 9},
+		// Snoozed till it was done, and just woke: herdr-snooze's tokens.
+		agent: agentInfo{PaneID: "w1:p3", Cwd: "/demo/w1-p3", WorkspaceID: "w1", Agent: "claude", Status: "done", Title: "Flaky checkout e2e test", StateChangeSeq: 9,
+			Tokens: map[string]string{snoozeWoke: "16:32 · it's done", snoozeWokeBadge: "⏰"}},
 		session: "0b3c9a51-5d7e-4f7a-9c35-1a2b3c4d5e02", age: 12 * time.Minute, current: true,
 		meta: sessionMeta{Branch: "fix/checkout-flake", Model: "claude-sonnet-5",
 			LastPrompt: "the checkout e2e test fails about one run in five, find out why"},

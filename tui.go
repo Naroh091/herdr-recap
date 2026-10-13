@@ -665,7 +665,7 @@ func (m *model) sortEntries() {
 	}
 	m.order = m.order[:0]
 	for p, e := range m.entries {
-		staged := m.show == stageAll || stageOf(e) == m.show || (m.replying && p == m.replyTo)
+		staged := inTab(e, m.show) || (m.replying && p == m.replyTo)
 		if staged && m.matches(e) {
 			m.order = append(m.order, p)
 		}
@@ -1541,8 +1541,13 @@ func (m model) viewEntry(e *entry, selected bool) []string {
 	wake := ""
 	if snoozed(e.agent) {
 		wake = snoozedStyle().Render(wakeText(e.agent))
-	} else if s := m.inState(e); s != "" {
-		right = append(right, s)
+	} else {
+		if s := m.inState(e); s != "" {
+			right = append(right, s)
+		}
+		if justWoke(e.agent) {
+			wake = styleOK.Render("woke " + strings.TrimSpace(e.agent.Tokens[snoozeWoke]))
+		}
 	}
 	left := " " + agentMark(e.agent.Status, m.spin.View()) + " "
 	style := styleTitle
@@ -1799,7 +1804,7 @@ func shownTokens(tokens map[string]string, only []string) []shownToken {
 		pr, prs, issue := tokens["pr"] != "", tokens["prs"] != "", tokens["issue"] != ""
 		for k := range tokens {
 			if (k == "pr" && prs) || (strings.HasPrefix(k, "pr_") && (pr || prs)) || (strings.HasPrefix(k, "issue_") && issue) ||
-				k == pastPRs || k == snoozeMark || k == snoozeBadge {
+				k == pastPRs || k == snoozeMark || k == snoozeBadge || k == snoozeWoke || k == snoozeWokeBadge {
 				continue
 			}
 			names = append(names, k)

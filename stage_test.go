@@ -140,6 +140,8 @@ func TestClickingATabShowsItsStage(t *testing.T) {
 		want := "All"
 		if tab.stage == stageSnoozed {
 			want = snoozeIcon + " " + tab.stage.label()
+		} else if tab.stage == stageWoke {
+			want = wokeIcon + " " + tab.stage.label()
 		} else if tab.stage != stageAll {
 			want = tab.stage.label()
 		}
@@ -174,7 +176,7 @@ func TestTheTabsFitANarrowPopup(t *testing.T) {
 			t.Errorf("at %d wide the tabs take %d, the last ending at %d", w, got, tabs[len(tabs)-1].x1)
 		}
 	}
-	if line, _ := m.tabBar(); !strings.Contains(ansi.Strip(line), "Review 1  💤 1") {
+	if line, _ := m.tabBar(); !strings.Contains(ansi.Strip(line), "Review 1 ⏰ 1 💤 1") {
 		t.Errorf("not shortened: %q", ansi.Strip(line))
 	}
 }
@@ -228,5 +230,20 @@ func TestASnoozedRowSaysWhenItWakes(t *testing.T) {
 	}
 	if tabs := m.stageTabs(); tabs[len(tabs)-1].stage != stageSnoozed {
 		t.Errorf("last tab %s", tabs[len(tabs)-1].stage.label())
+	}
+}
+
+func TestWhatJustWokeHasATabOfItsOwn(t *testing.T) {
+	m, _ := demoModel(t)
+	m.showStage(stageSnoozed)
+	if len(m.order) != 1 || m.order[0] != "w3:p2" {
+		t.Fatalf("snoozed tab: %v", m.order)
+	}
+	m.showStage(stageWoke)
+	if len(m.order) != 1 || m.order[0] != "w1:p3" {
+		t.Fatalf("just woke tab: %v", m.order)
+	}
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "woke 16:32 · it's done") {
+		t.Errorf("row doesn't say it woke:\n%s", v)
 	}
 }
