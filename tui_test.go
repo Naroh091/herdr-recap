@@ -1030,3 +1030,95 @@ func TestTheMouseLeavesAReplyAlone(t *testing.T) {
 		t.Error("hovering moved the selection away from the agent being replied to")
 	}
 }
+
+// spaceSource puts the agent with the poor title alone in a space of its
+// own, named for its old title, and records what spaces are renamed to.
+type spaceSource struct {
+	*renameSource
+	label  string
+	spaces []string
+}
+
+func (s *spaceSource) agents() ([]agentInfo, []workspaceInfo, error) {
+	agents, workspaces, err := s.renameSource.agents()
+	for i := range agents {
+		if agents[i].PaneID == "w1:p4" {
+			agents[i].WorkspaceID = "w9"
+		}
+	}
+	w := workspaceInfo{WorkspaceID: "w9", Label: s.label}
+	if l, ok := s.demoSource.spaces["w9"]; ok {
+		w.Label = l
+	}
+	return agents, append(workspaces, w), err
+}
+
+func (s *spaceSource) renameSpace(workspaceID, label string) error {
+	s.spaces = append(s.spaces, workspaceID+": "+label)
+	return s.renameSource.renameSpace(workspaceID, label)
+}
+
+func spaceModel(t *testing.T, label string) (model, *spaceSource) {
+	t.Helper()
+	d := newDemoSource()
+	d.delay = 0
+	src := &spaceSource{renameSource: &renameSource{demoSource: d}, label: label}
+	m := newModel(context.Background(), src)
+	m.width, m.height = 100, 40
+	m.now = func() time.Time { return d.started }
+	m = settle(t, m, m.loadAgents())
+	return selectPane(m, "w1:p4"), src
+}
+
+func TestARenameTakesASpaceNamedForTheAgentAlong(t *testing.T) {
+	m, src := spaceModel(t, "search-pagination")
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "→ WEB-431 Paginate the Search Results (and its space)  Rename · Ignore") {
+		t.Errorf("doesn't say the space is renamed too:\n%s", v)
+	}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	m = settle(t, next.(model), cmd)
+	if len(src.spaces) != 1 || src.spaces[0] != "w9: WEB-431 Paginate the Search Results" {
+		t.Fatalf("spaces renamed %q", src.spaces)
+	}
+	if len(src.sent) != 1 {
+		t.Errorf("typed %q", src.sent)
+	}
+}
+
+func TestASpaceYouNamedIsntRenamed(t *testing.T) {
+	m, src := spaceModel(t, "Voice-first Storefront")
+	if v := ansi.Strip(m.View()); strings.Contains(v, "and its space") {
+		t.Errorf("offers to rename a space you named:\n%s", v)
+	}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	settle(t, next.(model), cmd)
+	if len(src.spaces) != 0 {
+		t.Errorf("spaces renamed %q", src.spaces)
+	}
+}
+
+func TestASharedSpaceIsntRenamed(t *testing.T) {
+	m, _ := renameModel(t) // w1 has other agents in it
+	if s := m.spaceToRename(m.entries["w1:p4"]); s != "" {
+		t.Errorf("would rename %q", s)
+	}
+}
+
+func TestSameName(t *testing.T) {
+	for _, c := range []struct {
+		label, name string
+		want        bool
+	}{
+		{"herdr-recap", "herdr-recap", true},
+		{"worktree-security-review", "Worktree Security Review", true},
+		{"ACT-1870 Review Jira ecosystem sensors and ensu…", "ACT-1870 Review Jira ecosystem sensors and ensure are on a par", true},
+		{"Voice-first Action", "project-voice-first-action-87df7e8438b3", false},
+		{"Docs", "Docs and more", false},
+		{"Do…", "Docs and more", false},
+		{"", "", false},
+	} {
+		if got := sameName(c.label, c.name); got != c.want {
+			t.Errorf("sameName(%q, %q) = %v", c.label, c.name, got)
+		}
+	}
+}

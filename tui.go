@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -90,6 +91,12 @@ type renamedMsg struct {
 	pane, title string
 	sent        bool
 	err         error
+}
+
+// spaceRenamedMsg is how renaming an agent's space along with it went.
+type spaceRenamedMsg struct {
+	workspace, label string
+	err              error
 }
 
 // titledMsg is a title asked for (^r), in the session's recap.
@@ -473,6 +480,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		e.renaming, e.renameNoted = "", false
 		m.err = "Couldn't rename " + shorten(title(e.agent), 40) + ": " + msg.err.Error()
+		return m, nil
+
+	case spaceRenamedMsg:
+		if msg.err != nil {
+			m.err = "Couldn't rename the space: " + msg.err.Error()
+			return m, nil
+		}
+		// Named so on the row now, not at the next look.
+		for i, w := range m.workspaces {
+			if w.WorkspaceID == msg.workspace {
+				m.workspaces[i].Label = msg.label
+			}
+		}
 		return m, nil
 
 	case pluginsMsg:
@@ -1114,6 +1134,61 @@ func suggestion(e *entry) string {
 	return e.recap.Title
 }
 
+// spaceToRename is the space renamed along with the agent, as prefix+W
+// would: one with no other agent in it, whose name is a stand-in (its
+// folder's, its repo's, its branch's, or the agent's old title) rather than
+// one you gave it. "" for none.
+func (m model) spaceToRename(e *entry) string {
+	t := suggestion(e)
+	if t == "" {
+		return ""
+	}
+	for _, o := range m.entries {
+		if o != e && o.agent.WorkspaceID == e.agent.WorkspaceID {
+			return ""
+		}
+	}
+	for _, w := range m.workspaces {
+		if w.WorkspaceID != e.agent.WorkspaceID || w.Label == t {
+			continue
+		}
+		standIns := []string{sessionTitle(e.agent), e.branch, w.Worktree.RepoName}
+		for _, dir := range []string{w.Worktree.CheckoutPath, e.agent.Cwd} {
+			if dir != "" {
+				standIns = append(standIns, filepath.Base(dir))
+			}
+		}
+		if e.session != nil {
+			standIns = append(standIns, e.session.Meta.Branch)
+		}
+		for _, s := range standIns {
+			if sameName(w.Label, s) {
+				return w.WorkspaceID
+			}
+		}
+	}
+	return ""
+}
+
+// sameName: a space's name is another name, give or take case, spacing and
+// punctuation (a slug for a title), or the start of it, shortened with "…".
+func sameName(label, name string) bool {
+	squash := func(s string) string {
+		return strings.Map(func(r rune) rune {
+			if unicode.IsLetter(r) || unicode.IsDigit(r) {
+				return unicode.ToLower(r)
+			}
+			return -1
+		}, s)
+	}
+	cut := strings.HasSuffix(label, "…")
+	l, n := squash(strings.TrimSuffix(label, "…")), squash(name)
+	if l == "" || n == "" {
+		return false
+	}
+	return l == n || (cut && len(l) >= 8 && strings.HasPrefix(n, l))
+}
+
 // titled: the row has a line about a better title: one on offer, being
 // asked for, or being given.
 func titled(e *entry) bool {
@@ -1133,7 +1208,12 @@ func (m model) rename() (tea.Model, tea.Cmd) {
 		// before the agent is free to take it.
 		e.renaming = t
 		src, pane, s := m.src, e.agent.PaneID, *e.session
-		return m, func() tea.Msg { return renamedMsg{pane, t, false, src.rename(pane, s)} }
+		cmd := func() tea.Msg { return renamedMsg{pane, t, false, src.rename(pane, s)} }
+		// Its space straight away: that doesn't wait on the agent.
+		if ws := m.spaceToRename(e); ws != "" {
+			return m, tea.Batch(cmd, func() tea.Msg { return spaceRenamedMsg{ws, t, src.renameSpace(ws, t)} })
+		}
+		return m, cmd
 	}
 	if e.agent.Agent != "claude" && e.agent.Agent != "codex" {
 		// A title is asked of the conversation itself, in a fork, and given
@@ -1619,11 +1699,16 @@ func (m model) suggestionLine(e *entry) (line string, rename, ignore [2]int) {
 		dots := strings.Repeat(".", 1+int(m.now().UnixMilli()/400%3))
 		return "   " + styleDim.Render(shorten(doing, max(1, m.width-8))+dots), rename, ignore
 	}
-	t := shorten(suggestion(e), max(1, m.width-11-lipgloss.Width(renameLabel+ignoreLabel)))
-	x := 5 + lipgloss.Width(t) + 2
+	// Its space is renamed too, and the line says so.
+	also := ""
+	if m.spaceToRename(e) != "" {
+		also = " (and its space)"
+	}
+	t := shorten(suggestion(e), max(1, m.width-11-lipgloss.Width(renameLabel+ignoreLabel+also)))
+	x := 5 + lipgloss.Width(t) + lipgloss.Width(also) + 2
 	rename = [2]int{x, x + lipgloss.Width(renameLabel)}
 	ignore = [2]int{rename[1] + 3, rename[1] + 3 + lipgloss.Width(ignoreLabel)}
-	return "   " + styleDim.Render("→ ") + styleLead.Render(t) + "  " + styleHintHot.Render(renameLabel) +
+	return "   " + styleDim.Render("→ ") + styleLead.Render(t) + styleDim.Render(also) + "  " + styleHintHot.Render(renameLabel) +
 		styleDim.Render(" · ") + styleDim.Underline(true).Render(ignoreLabel), rename, ignore
 }
 

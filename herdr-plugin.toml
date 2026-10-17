@@ -1,6 +1,6 @@
 id = "herdr-recap"
 name = "Recap"
-version = "0.8.1"
+version = "0.9.0"
 min_herdr_version = "0.9.0"
 description = "Come back to a bunch of agents and know in seconds which ones need you: a popup that tells you, per agent, where it got to (a recap written while you were away) and whose move it is. Reply, filter and search from the list."
 platforms = ["linux", "macos"]

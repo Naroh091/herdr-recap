@@ -260,6 +260,12 @@ agent's title shows it. An agent that's working or asking you something is
 renamed once it's done, whether or not the popup is still open. *Ignore* (a click, or `ctrl+x`) drops the suggestion
 for good.
 
+The agent's space is renamed with it, as `prefix+W` would, when the agent is
+the only one in it and the space's name is only a stand-in: its folder's, its
+repo's, its branch's, or the agent's old title. The line says so: *→ ACT-1921
+Activation Email for New Users (and its space)*. A space you named yourself,
+or one shared with other agents, keeps its name.
+
 On a row with nothing suggested, `ctrl+r` asks for a title there and then,
 for you to take or ignore. A long-idle agent's conversation is no longer in
 the prompt cache, so that costs several times what it does alongside a recap.

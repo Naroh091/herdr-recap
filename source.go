@@ -38,6 +38,8 @@ type source interface {
 	// give types it into the agent, if it's still to be: once it's between turns.
 	rename(paneID string, s claudeSession) error
 	give(paneID string, s claudeSession) error
+	// renameSpace gives a workspace a new name, as prefix+W does.
+	renameSpace(workspaceID, label string) error
 	// settled notes that the session's suggested title was taken or turned
 	// down: it isn't offered again.
 	settled(s claudeSession) error
@@ -102,6 +104,10 @@ func (l liveSource) suggest(ctx context.Context, s claudeSession, title string) 
 func (liveSource) rename(paneID string, s claudeSession) error { return askRename(paneID, s.ID) }
 
 func (liveSource) give(paneID string, s claudeSession) error { return giveTitle(paneID, s.ID) }
+
+func (liveSource) renameSpace(workspaceID, label string) error {
+	return renameWorkspace(workspaceID, label)
+}
 
 func (l liveSource) capable(a agentInfo) bool { return recapCapable(l.cfg, a) }
 

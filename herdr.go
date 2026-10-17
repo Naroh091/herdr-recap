@@ -123,6 +123,12 @@ func listAgents() ([]agentInfo, error) {
 type workspaceInfo struct {
 	WorkspaceID string `json:"workspace_id"`
 	Label       string `json:"label"`
+	// Worktree is the checkout it's for, when it's for one: its folder and
+	// repo's names are what a space is called until you name it.
+	Worktree struct {
+		CheckoutPath string `json:"checkout_path"`
+		RepoName     string `json:"repo_name"`
+	} `json:"worktree"`
 }
 
 // listWorkspaces is the workspaces in sidebar order, for naming them on the
@@ -136,6 +142,10 @@ func listWorkspaces() []workspaceInfo {
 	}
 	sanitize(&res.Workspaces)
 	return res.Workspaces
+}
+
+func renameWorkspace(workspaceID, label string) error {
+	return herdrCall("workspace.rename", map[string]any{"workspace_id": workspaceID, "label": label}, nil)
 }
 
 // process is one of a pane's foreground processes.

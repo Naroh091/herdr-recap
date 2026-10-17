@@ -15,6 +15,7 @@ type demoSource struct {
 	recaps  map[string]recap
 	current map[string]bool
 	titles  map[string]string // by pane: the titles agents were renamed to
+	spaces  map[string]string // by workspace: the names spaces were renamed to
 	delay   time.Duration     // how long a demo recap "takes"
 	woken   map[string]bool   // by pane: snoozed agents woken in the demo
 }
@@ -113,7 +114,7 @@ var demoAgents = []demoAgent{
 }
 
 func newDemoSource() *demoSource {
-	d := &demoSource{started: time.Now(), recaps: map[string]recap{}, current: map[string]bool{}, titles: map[string]string{}, delay: 1500 * time.Millisecond}
+	d := &demoSource{started: time.Now(), recaps: map[string]recap{}, current: map[string]bool{}, titles: map[string]string{}, spaces: map[string]string{}, delay: 1500 * time.Millisecond}
 	for _, a := range demoAgents {
 		if a.session != "" && a.recap != "" {
 			d.recaps[a.session] = recap{Session: a.session, Text: a.recap, At: d.started.Add(-a.age)}
@@ -147,7 +148,14 @@ func (d *demoSource) agents() ([]agentInfo, []workspaceInfo, error) {
 			agents[i].Tokens = tokens
 		}
 	}
-	return agents, demoWorkspaces, nil
+	workspaces := make([]workspaceInfo, len(demoWorkspaces))
+	for i, w := range demoWorkspaces {
+		workspaces[i] = w
+		if l, ok := d.spaces[w.WorkspaceID]; ok {
+			workspaces[i].Label = l
+		}
+	}
+	return agents, workspaces, nil
 }
 
 func (d *demoSource) find(paneID string) *demoAgent {
@@ -278,6 +286,13 @@ func (d *demoSource) give(paneID string, s claudeSession) error {
 		r.Renaming, r.Settled = false, true
 		d.recaps[s.ID] = r
 	}
+	return nil
+}
+
+func (d *demoSource) renameSpace(workspaceID, label string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.spaces[workspaceID] = label
 	return nil
 }
 

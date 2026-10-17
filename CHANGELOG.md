@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0 - 2026-10-17
+
+- **A rename takes the agent's space along.** When the agent is the only
+  one in its space and the space is named for its folder, repo, branch or
+  the agent's old title, *Rename* renames the space too, as `prefix+W`
+  would, and the suggestion says *(and its space)*. A space you named
+  yourself, or one shared with other agents, keeps its name.
+
 ## 0.8.1 - 2026-10-13
 
 - **herdr-file-transfer joins the plugins that work together.** The README's
