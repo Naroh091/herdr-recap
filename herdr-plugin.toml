@@ -29,6 +29,16 @@ description = "The popup on made-up agents: try it, or take screenshots without 
 contexts = ["global"]
 command = ["./bin/herdr-recap", "action", "demo"]
 
+# Plain-text path for herdr-web-ui (browser/phone): popups have no pane ID
+# and can't be attached from the web, so this prints what the popup would
+# show. Web shows action stdout as the result.
+[[actions]]
+id = "list"
+title = "Recap: list as text"
+description = "Every agent's status, title and recap as plain text (web-friendly; same data as the popup)."
+contexts = ["global", "workspace", "pane"]
+command = ["./bin/herdr-recap", "list"]
+
 # The popup, opened by the actions above (the demo with a flag in its env).
 [[panes]]
 id = "picker"
@@ -36,6 +46,15 @@ title = "Recap"
 placement = "popup"
 width = "80%"
 height = "75%"
+command = ["./bin/herdr-recap", "picker"]
+
+# Normal pane for herdr-web-ui: same picker TUI, but as a real pane with a
+# pane ID the web can attach to (terminal attach + chat). Desktop TUI users
+# keep using the popup above.
+[[panes]]
+id = "board"
+title = "Recap board"
+placement = "split"
 command = ["./bin/herdr-recap", "picker"]
 
 # Recaps are written ahead of time. When a Claude or Codex agent finishes a turn (done)
