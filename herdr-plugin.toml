@@ -39,6 +39,16 @@ description = "Every agent's status, title and recap as plain text (web-friendly
 contexts = ["global", "workspace", "pane"]
 command = ["./bin/herdr-recap", "list"]
 
+# Opener for the board pane below, for clients like herdr-web-ui that cannot
+# attach to popups. The open answer carries the focused pane ID, which is how
+# the web selects it.
+[[actions]]
+id = "board"
+title = "Recap: open board"
+description = "Same picker as the popup, as a normal split pane (web-friendly)."
+contexts = ["global", "workspace", "pane"]
+command = ["sh", "scripts/open-board.sh"]
+
 # The popup, opened by the actions above (the demo with a flag in its env).
 [[panes]]
 id = "picker"
